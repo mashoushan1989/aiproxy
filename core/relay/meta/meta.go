@@ -38,6 +38,8 @@ type Meta struct {
 
 	RequestUsage       model.Usage
 	RequestServiceTier string
+	PromptCacheKey     string
+	User               string
 
 	JobID        string
 	GenerationID string
@@ -85,6 +87,24 @@ func WithToken(token model.TokenCache) Option {
 func WithRequestUsage(requestUsage model.Usage) Option {
 	return func(meta *Meta) {
 		meta.RequestUsage = requestUsage
+	}
+}
+
+func WithRequestServiceTier(requestServiceTier string) Option {
+	return func(meta *Meta) {
+		meta.RequestServiceTier = requestServiceTier
+	}
+}
+
+func WithPromptCacheKey(promptCacheKey string) Option {
+	return func(meta *Meta) {
+		meta.PromptCacheKey = promptCacheKey
+	}
+}
+
+func WithUser(user string) Option {
+	return func(meta *Meta) {
+		meta.User = user
 	}
 }
 
