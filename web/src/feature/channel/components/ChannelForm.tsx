@@ -31,6 +31,7 @@ import { ChannelTestDialog } from './ChannelTestDialog'
 import { DefaultModelsDialog } from './DefaultModelsDialog'
 import { ChannelConfigEditor } from './ChannelConfigEditor'
 import { useRuntimeMetrics } from '@/feature/monitor/runtime-hooks'
+import { Switch } from '@/components/ui/switch'
 
 interface ChannelFormProps {
     mode?: 'create' | 'update' | 'copy'
@@ -47,6 +48,7 @@ interface ChannelFormProps {
         model_mapping?: Record<string, string>
         sets?: string[]
         priority?: number
+        skip_tls_verify?: boolean
         configs_text?: string
     }
 }
@@ -65,7 +67,8 @@ export function ChannelForm({
         models: [],
         model_mapping: {},
         sets: [],
-        priority: 10
+        priority: 10,
+        skip_tls_verify: false,
     },
 }: ChannelFormProps) {
     const { t } = useTranslation()
@@ -201,6 +204,7 @@ export function ChannelForm({
             model_mapping: effectiveUseDefault ? {} : (data.model_mapping || {}),
             sets: data.sets || [],
             priority: data.priority,
+            skip_tls_verify: data.skip_tls_verify ?? false,
             configs: parsedConfigs
         }
 
@@ -329,6 +333,7 @@ export function ChannelForm({
             name: formData.name || '',
             models: testModels,
             model_mapping: testMapping,
+            skip_tls_verify: formData.skip_tls_verify ?? false,
             configs: parsedConfigs
         })
     }
@@ -904,6 +909,27 @@ export function ChannelForm({
                                             {t("channel.dialog.proxyUrlHelp")}
                                         </p>
                                         <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+
+                            <FormField
+                                control={form.control}
+                                name="skip_tls_verify"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border bg-muted/10 p-4">
+                                        <div className="space-y-1">
+                                            <FormLabel>{t('channel.dialog.skipTlsVerify')}</FormLabel>
+                                            <p className="text-xs text-muted-foreground">
+                                                {t('channel.dialog.skipTlsVerifyHelp')}
+                                            </p>
+                                        </div>
+                                        <FormControl>
+                                            <Switch
+                                                checked={field.value ?? false}
+                                                onCheckedChange={field.onChange}
+                                            />
+                                        </FormControl>
                                     </FormItem>
                                 )}
                             />

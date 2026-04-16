@@ -54,6 +54,7 @@ export function ChannelDialog({
             model_mapping: channel.model_mapping || {},
             sets: channel.sets || [],
             priority: channel.priority,
+            skip_tls_verify: channel.skip_tls_verify ?? false,
             configs_text: channel.configs ? JSON.stringify(channel.configs, null, 2) : ''
         }
         : {
@@ -66,6 +67,7 @@ export function ChannelDialog({
             model_mapping: {},
             sets: [],
             priority: 10,
+            skip_tls_verify: false,
             configs_text: ''
         }, [mode, channel])
 

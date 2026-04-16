@@ -14,6 +14,7 @@ export interface Channel {
     created_at: number
     accessed_at: number
     priority: number
+    skip_tls_verify?: boolean
     balance?: number
     used_amount?: number
     sets?: string[]
@@ -58,6 +59,7 @@ export interface ChannelCreateRequest {
     model_mapping?: Record<string, string>
     sets?: string[]
     priority?: number
+    skip_tls_verify?: boolean
     configs?: Record<string, unknown>
 }
 
@@ -71,6 +73,7 @@ export interface ChannelUpdateRequest {
     model_mapping?: Record<string, string>
     sets?: string[]
     priority?: number
+    skip_tls_verify?: boolean
     configs?: Record<string, unknown>
 }
 

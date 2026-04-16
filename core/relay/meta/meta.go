@@ -9,13 +9,14 @@ import (
 )
 
 type ChannelMeta struct {
-	Name         string
-	BaseURL      string
-	ProxyURL     string
-	Key          string
-	ID           int
-	Type         model.ChannelType
-	ModelMapping map[string]string
+	Name          string
+	BaseURL       string
+	ProxyURL      string
+	Key           string
+	ID            int
+	Type          model.ChannelType
+	ModelMapping  map[string]string
+	SkipTLSVerify bool
 }
 
 type Meta struct {
@@ -163,6 +164,7 @@ func (m *Meta) SetChannel(channel *model.Channel) {
 	m.Channel.Key = channel.Key
 	m.Channel.ID = channel.ID
 	m.Channel.Type = channel.Type
+	m.Channel.SkipTLSVerify = channel.SkipTLSVerify
 
 	m.Channel.ModelMapping = channel.ModelMapping
 	m.ChannelConfigs = channel.Configs

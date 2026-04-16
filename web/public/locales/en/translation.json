@@ -1672,6 +1672,8 @@
       "priority": "Priority",
       "priorityPlaceholder": "1-100, default 10",
       "priorityHelp": "Higher value means higher priority. Effective priority is dynamically adjusted by error rate. Default is 10",
+      "skipTlsVerify": "Skip TLS Verification",
+      "skipTlsVerifyHelp": "Enable this only when you trust the upstream service and need to bypass certificate verification.",
       "useDefaultModels": "Use Default Models",
       "customModels": "Custom Models",
       "defaultModelsHint": "Default models from channel type config. Switch to custom to override.",

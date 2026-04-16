@@ -188,6 +188,7 @@ export function ChannelTable() {
                 model_mapping: channel.model_mapping || undefined,
                 sets: channel.sets,
                 priority: channel.priority,
+                skip_tls_verify: channel.skip_tls_verify,
                 configs: channel.configs || undefined,
             }))
 
@@ -220,6 +221,7 @@ export function ChannelTable() {
             model_mapping: channel.model_mapping || undefined,
             sets: channel.sets,
             priority: channel.priority,
+            skip_tls_verify: channel.skip_tls_verify,
             configs: channel.configs || undefined,
         }]
 
