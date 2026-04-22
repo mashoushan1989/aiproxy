@@ -218,3 +218,19 @@ var ModelList = []model.ModelConfig{
 		Owner: model.ModelOwnerPPIO,
 	},
 }
+
+// VirtualWebSearchModels returns the names of virtual WebSearch models declared
+// in ModelList. These models are not returned by the upstream /v1/models API,
+// so the sync pipeline must inject them into the channel Models list explicitly
+// to keep routing functional.
+func VirtualWebSearchModels() []string {
+	names := make([]string, 0, 2)
+
+	for i := range ModelList {
+		if ModelList[i].Type == mode.WebSearch && ModelList[i].Owner == model.ModelOwnerPPIO {
+			names = append(names, ModelList[i].Model)
+		}
+	}
+
+	return names
+}

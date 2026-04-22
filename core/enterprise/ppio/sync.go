@@ -554,8 +554,17 @@ func EnsurePPIOChannels(
 			}
 		}
 
+		// Inject virtual WebSearch models (ppio-web-search, ppio-tavily-search).
+		// Upstream /v1/models never returns them, so without this explicit merge
+		// the sync would erase them from the OpenAI channel Models list and break
+		// /v1/web-search routing. See regression in commit d253822.
+		openaiModels = append(openaiModels, ppiorelay.VirtualWebSearchModels()...)
+
 		slices.Sort(anthropicModels)
 		slices.Sort(openaiModels)
+		// Dedupe openaiModels defensively in case upstream ever starts returning
+		// a virtual alias itself.
+		openaiModels = slices.Compact(openaiModels)
 	}
 
 	return ensurePPIOChannelsFromModels(

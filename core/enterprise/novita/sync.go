@@ -17,6 +17,7 @@ import (
 	"github.com/labring/aiproxy/core/common/notify"
 	"github.com/labring/aiproxy/core/enterprise/synccommon"
 	"github.com/labring/aiproxy/core/model"
+	novitarelay "github.com/labring/aiproxy/core/relay/adaptor/novita"
 	"github.com/labring/aiproxy/core/relay/mode"
 	"gorm.io/gorm"
 )
@@ -534,8 +535,17 @@ func EnsureNovitaChannels(
 			}
 		}
 
+		// Inject virtual WebSearch models (novita-tavily-search). Upstream
+		// /v1/models never returns them, so without this explicit merge the sync
+		// would erase them from the OpenAI channel Models list and break
+		// /v1/web-search routing. See regression in commit d253822.
+		openaiModels = append(openaiModels, novitarelay.VirtualWebSearchModels()...)
+
 		slices.Sort(anthropicModels)
 		slices.Sort(openaiModels)
+		// Dedupe openaiModels defensively in case upstream ever starts returning
+		// a virtual alias itself.
+		openaiModels = slices.Compact(openaiModels)
 	}
 
 	return ensureNovitaChannelsFromModels(
