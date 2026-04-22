@@ -180,6 +180,7 @@ export interface DepartmentSummary {
     output_tokens: number
     success_rate: number
     avg_cost: number
+    avg_cost_per_user: number
     unique_models: number
 }
 

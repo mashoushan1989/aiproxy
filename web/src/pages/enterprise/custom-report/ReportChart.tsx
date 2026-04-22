@@ -3,6 +3,7 @@ import * as echarts from "echarts"
 import type { CustomReportResponse } from "@/api/enterprise"
 import { useDarkMode, getEChartsTheme } from "@/lib/enterprise"
 import {
+    type AxisMode,
     type ChartType,
     CHART_COLORS,
     PERCENTAGE_FIELDS,
@@ -36,6 +37,8 @@ function wrapLegend(data: string[], textColor: string): echarts.EChartsOption["l
         width: "90%",
         left: "center",
         top: 0,
+        itemWidth: 14,
+        itemHeight: 10,
         ...(useScroll ? { pageTextStyle: { color: textColor } } : {}),
     }
 }
@@ -45,8 +48,8 @@ function computeChartHeight(legendCount: number, fullscreen: boolean): number {
     if (fullscreen) return 0 // CSS-controlled
     const legendRows = Math.ceil(Math.min(legendCount, 15) / 5)
     const legendHeight = legendRows * 22 + 8
-    const minChartArea = 300
-    const maxHeight = 600
+    const minChartArea = legendCount > 8 ? 420 : 380
+    const maxHeight = 760
     return Math.min(legendHeight + minChartArea, maxHeight)
 }
 
@@ -79,11 +82,111 @@ function dimLabel(dimKey: string, row: Record<string, unknown>): string {
     return formatDimValue(dimKey, row[dimKey])
 }
 
+function formatTooltipChartValue(measureKey: string, value: number | null | undefined): string {
+    if (value == null || Number.isNaN(Number(value))) return "-"
+    const n = Number(value)
+    if (COST_FIELDS.has(measureKey)) return `¥${n.toFixed(2)}`
+    return formatCellValue(measureKey, n)
+}
+
+function buildDataZoom(pointCount: number): echarts.EChartsOption["dataZoom"] | undefined {
+    if (pointCount <= 12) return undefined
+    return [
+        {
+            type: "inside",
+            zoomOnMouseWheel: "shift",
+            moveOnMouseMove: true,
+            moveOnMouseWheel: true,
+            filterMode: "none",
+        },
+        {
+            type: "slider",
+            height: 18,
+            bottom: 0,
+            brushSelect: false,
+            filterMode: "none",
+        },
+    ]
+}
+
+function measureUnitFamily(measureKey: string): "percent" | "cost" | "duration" | "speed" | "ratio" | "count" {
+    if (PERCENTAGE_FIELDS.has(measureKey)) return "percent"
+    if (COST_FIELDS.has(measureKey)) return "cost"
+    if (measureKey.includes("latency") || measureKey.includes("ttfb") || measureKey.includes("time_ms")) return "duration"
+    if (measureKey === "tokens_per_second" || measureKey === "output_speed") return "speed"
+    if (measureKey === "output_input_ratio") return "ratio"
+    return "count"
+}
+
+function normalizeAxisAssignment(
+    measures: string[],
+    axisMode: AxisMode,
+    rightAxisMeasures: string[],
+): { useDualAxis: boolean; rightAxisSet: Set<string> } {
+    if (measures.length < 2 || axisMode === "single") {
+        return { useDualAxis: false, rightAxisSet: new Set() }
+    }
+
+    if (axisMode === "custom") {
+        const rightAxisSet = new Set(rightAxisMeasures.filter((measure) => measures.includes(measure)))
+        if (rightAxisSet.size === 0 || rightAxisSet.size === measures.length) {
+            rightAxisSet.clear()
+            rightAxisSet.add(measures[measures.length - 1])
+        }
+        return { useDualAxis: true, rightAxisSet }
+    }
+
+    const percentageMeasures = measures.filter((measure) => PERCENTAGE_FIELDS.has(measure))
+    if (percentageMeasures.length > 0 && percentageMeasures.length < measures.length) {
+        return { useDualAxis: true, rightAxisSet: new Set(percentageMeasures) }
+    }
+
+    if (measures.length === 2 && measureUnitFamily(measures[0]) !== measureUnitFamily(measures[1])) {
+        return { useDualAxis: true, rightAxisSet: new Set([measures[1]]) }
+    }
+
+    return { useDualAxis: false, rightAxisSet: new Set() }
+}
+
+function buildAxisName(measures: string[], lang: string): string {
+    if (measures.length === 0) return lang.startsWith("zh") ? "数值" : "Value"
+    if (measures.length === 1) return getLabel(measures[0], lang)
+    if (measures.every((measure) => PERCENTAGE_FIELDS.has(measure))) return "%"
+    if (measures.every((measure) => COST_FIELDS.has(measure))) return lang.startsWith("zh") ? "费用" : "Cost"
+    if (measures.every((measure) => measureUnitFamily(measure) === "duration")) return lang.startsWith("zh") ? "时延 (ms)" : "Latency (ms)"
+    return lang.startsWith("zh") ? "混合指标" : "Metrics"
+}
+
+function buildValueAxis(
+    measures: string[],
+    lang: string,
+    theme: ReturnType<typeof getEChartsTheme>,
+    position: "left" | "right",
+): echarts.YAXisComponentOption {
+    const percentOnly = measures.length > 0 && measures.every((measure) => PERCENTAGE_FIELDS.has(measure))
+    return {
+        type: "value",
+        position,
+        name: buildAxisName(measures, lang),
+        nameTextStyle: { color: theme.subTextColor },
+        axisLabel: {
+            color: theme.subTextColor,
+            formatter: percentOnly ? "{value}%" : undefined,
+        },
+        ...(percentOnly ? { min: 0, max: 100 } : {}),
+        splitLine: position === "right"
+            ? { show: !percentOnly, lineStyle: { color: theme.splitLineColor, opacity: 0.3 } }
+            : { lineStyle: { color: theme.splitLineColor } },
+    } as echarts.YAXisComponentOption
+}
+
 export function ReportChart({
     data,
     dimensions,
     measures,
     chartType,
+    axisMode = "auto",
+    rightAxisMeasures = [],
     lang,
     fullscreen = false,
 }: {
@@ -91,6 +194,8 @@ export function ReportChart({
     dimensions: string[]
     measures: string[]
     chartType: ChartType
+    axisMode?: AxisMode
+    rightAxisMeasures?: string[]
     lang: string
     fullscreen?: boolean
 }) {
@@ -123,6 +228,9 @@ export function ReportChart({
             const first = rows[0]?.[m]
             return first !== undefined && !Number.isNaN(Number(first))
         })
+        const { useDualAxis, rightAxisSet } = normalizeAxisAssignment(numericMeasures, axisMode, rightAxisMeasures)
+        const leftAxisMeasures = numericMeasures.filter((measure) => !rightAxisSet.has(measure))
+        const rightAxisMeasureList = numericMeasures.filter((measure) => rightAxisSet.has(measure))
 
         let option: echarts.EChartsOption
 
@@ -338,7 +446,31 @@ export function ReportChart({
                 if (secondary) {
                     // ── Multi-dimension: primary = X-axis, secondary = series grouping ──
                     const primaryValues = [...new Set(rows.map((r) => formatDimValue(primary, r[primary])))]
-                    const secondaryValues = [...new Set(rows.map((r) => formatDimValue(secondary, r[secondary])))]
+                    const rawSecondaryValues = [...new Set(rows.map((r) => formatDimValue(secondary, r[secondary])))]
+                    const sortMeasure = numericMeasures[0]
+                    const maxVisibleSeries = numericMeasures.length > 1 ? 6 : 10
+                    const secondaryTotals = new Map<string, number>()
+                    if (sortMeasure) {
+                        for (const row of rows) {
+                            const sKey = formatDimValue(secondary, row[secondary])
+                            secondaryTotals.set(
+                                sKey,
+                                (secondaryTotals.get(sKey) ?? 0) + Number(row[sortMeasure] ?? 0),
+                            )
+                        }
+                    }
+                    const sortedSecondaryValues = [...rawSecondaryValues].sort(
+                        (a, b) => (secondaryTotals.get(b) ?? 0) - (secondaryTotals.get(a) ?? 0),
+                    )
+                    const hiddenSecondaryValues = new Set(
+                        sortedSecondaryValues.length > maxVisibleSeries
+                            ? sortedSecondaryValues.slice(maxVisibleSeries)
+                            : [],
+                    )
+                    const othersLabel = lang.startsWith("zh") ? "其他" : "Others"
+                    const secondaryValues = hiddenSecondaryValues.size > 0
+                        ? [...sortedSecondaryValues.slice(0, maxVisibleSeries), othersLabel]
+                        : sortedSecondaryValues
 
                     // Build lookup: primaryLabel -> secondaryLabel -> { measure: value }
                     const lookup = new Map<string, Map<string, Record<string, number>>>()
@@ -361,19 +493,38 @@ export function ReportChart({
                     // If multiple measures, series name = "secondaryValue - measureLabel"
                     const allSeries: echarts.EChartsOption["series"] = []
                     const legendData: string[] = []
+                    const seriesMeasureMap = new Map<string, string>()
                     let colorIdx = 0
+                    const getSeriesData = (seriesKey: string, measureKey: string) => {
+                        if (seriesKey !== othersLabel) {
+                            return primaryValues.map((pVal) => lookup.get(pVal)?.get(seriesKey)?.[measureKey] ?? 0)
+                        }
+                        return primaryValues.map((pVal) => {
+                            const pLookup = lookup.get(pVal)
+                            if (!pLookup) return 0
+                            let total = 0
+                            for (const hiddenKey of hiddenSecondaryValues) {
+                                total += pLookup.get(hiddenKey)?.[measureKey] ?? 0
+                            }
+                            return total
+                        })
+                    }
 
                     if (numericMeasures.length === 1) {
                         const m = numericMeasures[0]
                         for (const sVal of secondaryValues) {
                             legendData.push(sVal)
-                            allSeries.push({
-                                name: sVal,
-                                type: seriesType,
-                                data: primaryValues.map((pVal) => lookup.get(pVal)?.get(sVal)?.[m] ?? 0),
-                                itemStyle: { color: CHART_COLORS[colorIdx % CHART_COLORS.length] },
+                            seriesMeasureMap.set(sVal, m)
+                                allSeries.push({
+                                    name: sVal,
+                                    type: seriesType,
+                                    yAxisIndex: useDualAxis && rightAxisSet.has(m) ? 1 : 0,
+                                    data: getSeriesData(sVal, m),
+                                    itemStyle: { color: CHART_COLORS[colorIdx % CHART_COLORS.length] },
                                 smooth: seriesType === "line",
                                 stack: isStacked ? "total" : undefined,
+                                barMaxWidth: 24,
+                                emphasis: { focus: "series", blurScope: "coordinateSystem" },
                                 ...(isArea ? { areaStyle: { opacity: 0.3 } } : {}),
                             })
                             colorIdx++
@@ -383,13 +534,17 @@ export function ReportChart({
                             for (const m of numericMeasures) {
                                 const seriesName = `${sVal} - ${getLabel(m, lang)}`
                                 legendData.push(seriesName)
+                                seriesMeasureMap.set(seriesName, m)
                                 allSeries.push({
                                     name: seriesName,
                                     type: seriesType,
-                                    data: primaryValues.map((pVal) => lookup.get(pVal)?.get(sVal)?.[m] ?? 0),
+                                    yAxisIndex: useDualAxis && rightAxisSet.has(m) ? 1 : 0,
+                                    data: getSeriesData(sVal, m),
                                     itemStyle: { color: CHART_COLORS[colorIdx % CHART_COLORS.length] },
                                     smooth: seriesType === "line",
                                     stack: isStacked ? sVal : undefined,
+                                    barMaxWidth: 24,
+                                    emphasis: { focus: "series", blurScope: "coordinateSystem" },
                                     ...(isArea ? { areaStyle: { opacity: 0.3 } } : {}),
                                 })
                                 colorIdx++
@@ -400,25 +555,46 @@ export function ReportChart({
                     const gridTop = legendGridTop(legendData.length)
 
                     option = {
-                        tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+                        tooltip: {
+                            trigger: "item",
+                            confine: true,
+                            backgroundColor: isDark ? "rgba(30,30,40,0.95)" : "rgba(255,255,255,0.96)",
+                            borderColor: isDark ? "#444" : "#e5e7eb",
+                            textStyle: { color: isDark ? "#e5e7eb" : "#374151", fontSize: 12 },
+                            formatter: (param: unknown) => {
+                                const p = param as {
+                                    name: string
+                                    seriesName: string
+                                    value: number | null
+                                    marker: string
+                                }
+                                const measureKey = seriesMeasureMap.get(p.seriesName) ?? numericMeasures[0] ?? ""
+                                return [
+                                    `<div style="font-weight:600;margin-bottom:6px">${p.name}</div>`,
+                                    `<div>${p.marker} ${p.seriesName}: <span style="font-weight:600">${formatTooltipChartValue(measureKey, p.value)}</span></div>`,
+                                ].join("")
+                            },
+                        },
                         legend: wrapLegend(legendData, theme.textColor),
-                        grid: { left: "3%", right: "4%", bottom: "3%", top: gridTop, containLabel: true },
+                        grid: { left: "3%", right: useDualAxis ? "9%" : "4%", bottom: primaryValues.length > 12 ? 56 : "6%", top: gridTop, containLabel: true },
+                        dataZoom: buildDataZoom(primaryValues.length),
                         xAxis: {
                             type: "category",
                             data: primaryValues,
                             axisLabel: { rotate: labelCfg.rotate, interval: labelCfg.interval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
                         },
-                        yAxis: { type: "value", axisLabel: { color: theme.subTextColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+                        yAxis: useDualAxis
+                            ? [
+                                buildValueAxis(leftAxisMeasures, lang, theme, "left"),
+                                buildValueAxis(rightAxisMeasureList, lang, theme, "right"),
+                            ]
+                            : buildValueAxis(leftAxisMeasures, lang, theme, "left"),
                         series: allSeries,
                     }
                 } else {
                     // ── Single dimension: each measure is a series ──
                     const xLabels = rows.slice(0, 50).map((row) => formatDimValue(primary, row[primary]))
                     const labelCfg = xAxisLabelConfig(xLabels)
-
-                    const hasPercentage = numericMeasures.some((m) => PERCENTAGE_FIELDS.has(m))
-                    const hasAbsolute = numericMeasures.some((m) => !PERCENTAGE_FIELDS.has(m))
-                    const needDualAxis = hasPercentage && hasAbsolute && numericMeasures.length > 1
 
                     const singleGridTop = legendGridTop(numericMeasures.length)
 
@@ -448,18 +624,19 @@ export function ReportChart({
                             formatter: measureTooltipFormatter,
                         },
                         legend: wrapLegend(numericMeasures.map((m) => getLabel(m, lang)), theme.textColor),
-                        grid: { left: "3%", right: needDualAxis ? "8%" : "4%", bottom: "3%", top: singleGridTop, containLabel: true },
+                        grid: { left: "3%", right: useDualAxis ? "9%" : "4%", bottom: xLabels.length > 12 ? 56 : "3%", top: singleGridTop, containLabel: true },
+                        dataZoom: buildDataZoom(xLabels.length),
                         xAxis: {
                             type: "category",
                             data: xLabels,
                             axisLabel: { rotate: labelCfg.rotate, interval: labelCfg.interval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
                         },
-                        yAxis: needDualAxis
+                        yAxis: useDualAxis
                             ? [
-                                { type: "value", name: lang.startsWith("zh") ? "数值" : "Value", nameTextStyle: { color: theme.subTextColor }, axisLabel: { color: theme.subTextColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
-                                { type: "value", name: "%", max: 100, min: 0, nameTextStyle: { color: theme.subTextColor }, axisLabel: { color: theme.subTextColor }, splitLine: { show: false } },
+                                buildValueAxis(leftAxisMeasures, lang, theme, "left"),
+                                buildValueAxis(rightAxisMeasureList, lang, theme, "right"),
                             ]
-                            : { type: "value", axisLabel: { color: theme.subTextColor }, splitLine: { lineStyle: { color: theme.splitLineColor } } },
+                            : buildValueAxis(leftAxisMeasures, lang, theme, "left"),
                         series: numericMeasures.map((m, i) => {
                             // Preserve null (from safeDivide) so echarts skips the point
                             // instead of plotting 0 for "no data" ratios.
@@ -479,10 +656,12 @@ export function ReportChart({
                             return {
                                 name: getLabel(m, lang),
                                 type: seriesType,
-                                yAxisIndex: needDualAxis && PERCENTAGE_FIELDS.has(m) ? 1 : 0,
+                                yAxisIndex: useDualAxis && rightAxisSet.has(m) ? 1 : 0,
                                 data: seriesData,
                                 itemStyle: { color: CHART_COLORS[i % CHART_COLORS.length] },
                                 smooth: seriesType === "line",
+                                barMaxWidth: 28,
+                                emphasis: { focus: "series", blurScope: "coordinateSystem" },
                                 ...(isStacked ? { stack: "total" } : {}),
                                 ...(isArea ? { areaStyle: { opacity: 0.3 } } : {}),
                                 ...(markLine ? { markLine } : {}),
@@ -501,7 +680,7 @@ export function ReportChart({
         return () => {
             window.removeEventListener("resize", handleResize)
         }
-    }, [data, dimensions, measures, chartType, lang, isDark])
+    }, [data, dimensions, measures, chartType, axisMode, rightAxisMeasures, lang, isDark])
 
     // Estimate legend count for dynamic height
     const legendCount = useMemo(() => {

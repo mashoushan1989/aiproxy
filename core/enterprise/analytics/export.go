@@ -129,7 +129,8 @@ func addDepartmentSheet(
 	headers := []string{
 		"Rank", "Department", "Active Users", "Members",
 		"Requests", "Amount ($)", "Total Tokens",
-		"Input Tokens", "Output Tokens", "Success Rate (%)", "Avg Cost ($)",
+		"Input Tokens", "Output Tokens", "Success Rate (%)",
+		"Avg Cost ($)", "Avg Cost per User ($)",
 	}
 	writeHeaderRow(f, sheet, headers, headerStyle)
 
@@ -151,6 +152,7 @@ func addDepartmentSheet(
 		f.SetCellValue(sheet, cellName(9, row), d.OutputTokens)
 		f.SetCellValue(sheet, cellName(10, row), fmt.Sprintf("%.1f", d.SuccessRate))
 		f.SetCellValue(sheet, cellName(11, row), fmt.Sprintf("%.6f", d.AvgCost))
+		f.SetCellValue(sheet, cellName(12, row), fmt.Sprintf("%.6f", d.AvgCostPerUser))
 
 		// Apply amount formatting
 		f.SetCellStyle(sheet, cellName(6, row), cellName(6, row), amountStyle)

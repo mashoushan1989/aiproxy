@@ -267,6 +267,11 @@
       "totalTokens": "总 Token 数",
       "activeDepartments": "活跃部门",
       "departmentSummary": "部门汇总",
+      "aggLevel": {
+        "level1": "按一级部门汇总",
+        "level2": "按二级部门汇总",
+        "leaf": "部门明细"
+      },
       "departmentChart": "部门用量分布",
       "department": "部门",
       "requests": "请求数",
@@ -276,6 +281,7 @@
       "memberCount": "部门人数",
       "successRate": "成功率",
       "avgCost": "平均成本",
+      "avgCostPerUser": "人均费用",
       "uniqueModels": "使用模型数",
       "inputTokens": "输入 Token",
       "outputTokens": "输出 Token",
@@ -287,7 +293,21 @@
       "viewTrend": "查看趋势",
       "modelDistribution": "模型用量分布",
       "model": "模型",
-      "share": "占比"
+      "share": "占比",
+      "subtitle": "一站式掌握部门活跃度、消费集中度与模型使用分布。",
+      "filtersApplied": "已应用 {{count}} 项筛选",
+      "activeUsersTotal": "活跃人数",
+      "topDepartment": "Top 部门",
+      "topModel": "Top 模型",
+      "analysisSignal": "分析信号",
+      "noHighlights": "当前筛选下暂无亮点数据。",
+      "departmentSummaryHint": "当前范围共 {{count}} 个部门",
+      "departmentChartHint": "Top 10 部门消费集中度。",
+      "modelDistributionHint": "对比请求与消费占比最高的模型。",
+      "topDeptDetail": "{{amount}} · {{requestCount}} 次请求",
+      "topModelDetail": "{{amount}} · 占比 {{share}}%",
+      "analysisValue": "{{amount}} / 次",
+      "analysisDetail": "{{tokens}} Tokens / 次"
     },
     "ranking": {
       "title": "员工排行榜",
@@ -326,7 +346,7 @@
       "trend": "用量趋势",
       "back": "返回概览",
       "chartRequests": "请求数",
-      "chartAmount": "金额 ($)",
+      "chartAmount": "金额 (¥)",
       "chartTokens": "Token 数"
     },
     "sidebar": {
@@ -784,11 +804,31 @@
       },
       "templates": {
         "title": "快速开始",
+        "scenarios": {
+          "cost": "成本分析",
+          "activity": "活跃度分析",
+          "stability": "稳定性分析"
+        },
         "deptCostTop10": "部门费用 Top 10",
+        "deptCostTop10Desc": "快速定位费用最高的部门，并结合请求量与活跃用户数看规模差异。",
+        "deptCostStructure": "部门成本结构",
+        "deptCostStructureDesc": "同时观察总费用、缓存成本与推理成本占比，判断部门成本结构是否健康。",
+        "modelCostEfficiency": "模型成本效率",
+        "modelCostEfficiencyDesc": "对比模型的单次成本、千 Token 成本和总费用，找出高成本模型。",
         "modelUsageTrend": "模型使用趋势",
+        "modelUsageTrendDesc": "按时间观察模型请求量、Token 和费用变化，识别增长或替换趋势。",
         "userActivityRank": "用户活跃度排行",
+        "userActivityRankDesc": "查看最活跃用户的请求量、费用、模型广度和成功率。",
+        "deptAdoptionTrend": "部门活跃趋势",
+        "deptAdoptionTrendDesc": "从请求量、活跃用户和人均请求数观察整体使用渗透情况。",
         "deptModelPivot": "部门×模型交叉分析",
-        "dailyPerformance": "每日性能概览"
+        "deptModelPivotDesc": "适合横向比较各部门在不同模型上的使用分布和费用分配。",
+        "dailyPerformance": "每日性能概览",
+        "dailyPerformanceDesc": "聚焦每日请求规模、平均延迟、成功率和错误率的整体波动。",
+        "modelStabilityWatch": "模型稳定性监控",
+        "modelStabilityWatchDesc": "按模型查看成功率、错误率和时延，快速找出不稳定模型。",
+        "retryThrottleTrend": "重试与限流趋势",
+        "retryThrottleTrendDesc": "观察重试率、限流率和异常率变化，定位流量高峰或上游抖动。"
       },
       "pivotView": "透视表",
       "pivotMeasure": "展示指标",
@@ -833,7 +873,15 @@
       "exportForFull": "导出完整数据",
       "retry": "重试",
       "recommendGranularity": "建议使用「{{recommended}}」粒度",
-      "drillRoot": "总览"
+      "drillRoot": "总览",
+      "axisConfig": "轴配置",
+      "axisMode": "坐标轴模式",
+      "axisSingle": "单轴",
+      "axisAutoDual": "自动双轴",
+      "axisCustomDual": "自定义双轴",
+      "axisRightMeasures": "右轴指标",
+      "chartFocusTitle": "图表聚焦",
+      "chartInspectorHint": "悬停到具体柱子或点位时，仅查看当前指标详情。"
     },
     "accessControl": {
       "title": "访问控制",

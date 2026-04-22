@@ -150,10 +150,13 @@ var computedMeasures = map[string][]string{
 		"cache_creation_amount",
 		"input_tokens",
 	},
-	"cost_per_output_1k": {"output_amount", "output_tokens"},
-	"input_cost_pct":     {"input_amount", "used_amount"},
-	"output_cost_pct":    {"output_amount", "used_amount"},
-	"cached_cost_pct":    {"cached_amount", "used_amount"},
+	"cost_per_output_1k":      {"output_amount", "output_tokens"},
+	"input_cost_pct":          {"input_amount", "used_amount"},
+	"output_cost_pct":         {"output_amount", "used_amount"},
+	"cached_cost_pct":         {"cached_amount", "used_amount"},
+	"cache_creation_cost_pct": {"cache_creation_amount", "used_amount"},
+	"cache_total_cost_pct":    {"cached_amount", "cache_creation_amount", "used_amount"},
+	"reasoning_cost_pct":      {"reasoning_amount", "used_amount"},
 
 	// Misc
 	"reconciliation_tokens": {
@@ -230,7 +233,7 @@ var measureLabels = map[string]string{
 
 	// Computed: per-request efficiency
 	"avg_tokens_per_req":    "平均每请求 Token",
-	"avg_input_per_req":     "平均输入 Token/请求",
+	"avg_input_per_req":     "平均输入 Token/请求 (含缓存)",
 	"avg_output_per_req":    "平均输出 Token/请求",
 	"avg_cached_per_req":    "平均缓存 Token/请求",
 	"avg_reasoning_per_req": "平均推理 Token/请求",
@@ -255,13 +258,16 @@ var measureLabels = map[string]string{
 	"avg_requests_per_user": "活跃用户人均请求数",
 
 	// Computed: cost structure
-	"output_input_ratio":    "输出/输入比",
+	"output_input_ratio":    "输出/总输入比 (含缓存)",
 	"cost_per_1k_tokens":    "千Token成本",
 	"cost_per_input_1k":     "千输入Token混合成本",
 	"cost_per_output_1k":    "千输出Token成本",
 	"input_cost_pct":        "输入费用占比 (%)",
 	"output_cost_pct":       "输出费用占比 (%)",
-	"cached_cost_pct":       "缓存费用占比 (%)",
+	"cached_cost_pct":       "缓存读取费用占比 (%)",
+	"cache_creation_cost_pct": "缓存创建费用占比 (%)",
+	"cache_total_cost_pct":    "缓存总费用占比 (%)",
+	"reasoning_cost_pct":      "推理费用占比 (%)",
 	"reconciliation_tokens": "对账 Token (不含缓存)",
 }
 
@@ -1455,6 +1461,12 @@ func computeDerivedMeasures(row map[string]any, r rawRow, measures []string, per
 			row[m] = safePercent(r.OutputAmount, r.UsedAmount)
 		case "cached_cost_pct":
 			row[m] = safePercent(r.CachedAmount, r.UsedAmount)
+		case "cache_creation_cost_pct":
+			row[m] = safePercent(r.CacheCrAmount, r.UsedAmount)
+		case "cache_total_cost_pct":
+			row[m] = safePercent(r.CachedAmount+r.CacheCrAmount, r.UsedAmount)
+		case "reasoning_cost_pct":
+			row[m] = safePercent(r.ReasonAmount, r.UsedAmount)
 		case "cost_per_input_1k":
 			// Blended cost per 1K input tokens: includes base-rate input, cached-read,
 			// and cache-creation charges. Denominator is total input_tokens (which

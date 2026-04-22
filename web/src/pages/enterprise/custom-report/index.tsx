@@ -29,7 +29,7 @@ import {
 import { type TimeRange, computeTimeRangeTs } from "@/lib/enterprise"
 
 import {
-    type ChartType, type ViewMode, type ReportTemplate, type DrillStep,
+    type AxisMode, type ChartType, type ViewMode, type ReportTemplate, type DrillStep,
     DEFAULT_DIMS, DEFAULT_MEASURES, formatCellValue, getLabel,
     DRILL_HIERARCHY, DRILL_FILTER_MAP,
 } from "./types"
@@ -41,6 +41,7 @@ import { ReportChart } from "./ReportChart"
 import { PivotTable } from "./PivotTable"
 import { SplitView } from "./SplitView"
 import { ChartTypePicker } from "./ChartTypePicker"
+import { AxisModePicker } from "./AxisModePicker"
 import { DashboardGrid } from "./DashboardGrid"
 import { TemplateManager } from "./TemplateManager"
 import { SkeletonChart, EmptyState } from "./EmptyState"
@@ -63,6 +64,8 @@ export default function EnterpriseCustomReport() {
     // View state
     const [viewMode, setViewMode] = useState<ViewMode>("table")
     const [chartType, setChartType] = useState<ChartType>("auto")
+    const [axisMode, setAxisMode] = useState<AxisMode>("auto")
+    const [rightAxisMeasures, setRightAxisMeasures] = useState<string[]>(() => DEFAULT_MEASURES.slice(-1))
     const [reportData, setReportData] = useState<CustomReportResponse | null>(null)
     const [sortBy, setSortBy] = useState<string | undefined>()
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
@@ -195,6 +198,18 @@ export default function EnterpriseCustomReport() {
             setPivotMeasure("")
         }
     }, [selectedMeasures, pivotMeasure])
+
+    useEffect(() => {
+        setRightAxisMeasures((prev) => {
+            const filtered = prev.filter((measure) => selectedMeasures.includes(measure))
+            if (selectedMeasures.length < 2) return []
+            if (axisMode !== "custom") return filtered
+            if (filtered.length === 0 || filtered.length === selectedMeasures.length) {
+                return [selectedMeasures[selectedMeasures.length - 1]]
+            }
+            return filtered
+        })
+    }, [selectedMeasures, axisMode])
 
     const activePivotMeasure = pivotMeasure && selectedMeasures.includes(pivotMeasure)
         ? pivotMeasure
@@ -351,14 +366,18 @@ export default function EnterpriseCustomReport() {
     )
 
     return (
-        <div className="h-full flex flex-col">
+        <div className="flex h-full flex-col bg-[radial-gradient(circle_at_top,_rgba(106,109,230,0.08),_transparent_32%),linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] dark:bg-[radial-gradient(circle_at_top,_rgba(106,109,230,0.18),_transparent_28%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(2,6,23,0.94))]">
             {/* Header */}
-            <div className="px-6 py-4 border-b">
-                <h1 className="text-2xl font-bold flex items-center gap-2">
+            <div className="border-b border-border/60 px-6 py-5 backdrop-blur-sm">
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs text-muted-foreground shadow-sm">
+                    <FileBarChart className="h-3.5 w-3.5 text-[#6A6DE6]" />
+                    {t("enterprise.customReport.title")}
+                </div>
+                <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
                     <FileBarChart className="w-6 h-6 text-[#6A6DE6]" />
                     {t("enterprise.customReport.title")}
                 </h1>
-                <p className="text-muted-foreground mt-1 text-sm">
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                     {t("enterprise.customReport.description")}
                 </p>
             </div>
@@ -367,7 +386,7 @@ export default function EnterpriseCustomReport() {
             <div className="flex-1 flex overflow-hidden">
                 {/* Desktop sidebar */}
                 <div className={`hidden lg:flex flex-col border-r bg-background transition-all duration-200 ${
-                    sidebarCollapsed ? "w-12" : "w-[320px]"
+                    sidebarCollapsed ? "w-12" : "w-[280px] xl:w-[296px]"
                 }`}>
                     {sidebarCollapsed ? (
                         <ConfigPanel
@@ -396,7 +415,7 @@ export default function EnterpriseCustomReport() {
                 </Sheet>
 
                 {/* Content area */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div className="flex-1 overflow-y-auto p-6 space-y-5">
                     {/* Mobile: config button */}
                     <div className="lg:hidden">
                         <Button
@@ -498,9 +517,9 @@ export default function EnterpriseCustomReport() {
                             )}
 
                             {/* Toolbar */}
-                            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm flex flex-wrap items-center gap-2 py-1">
+                            <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-background/90 px-3 py-2 shadow-sm backdrop-blur-md">
                                 {/* View mode switcher */}
-                                <div className="flex items-center border rounded-lg overflow-hidden">
+                                <div className="flex items-center overflow-hidden rounded-xl border border-border/70 bg-muted/30">
                                     {([
                                         { mode: "table" as ViewMode, icon: Table2, labelKey: "enterprise.customReport.tableView" },
                                         { mode: "chart" as ViewMode, icon: BarChart3, labelKey: "enterprise.customReport.chartView" },
@@ -513,7 +532,7 @@ export default function EnterpriseCustomReport() {
                                             variant={viewMode === mode ? "default" : "ghost"}
                                             size="sm"
                                             onClick={() => setViewMode(mode)}
-                                            className={`gap-1.5 rounded-none text-xs ${viewMode === mode ? "bg-[#6A6DE6] text-white" : ""}`}
+                                            className={`gap-1.5 rounded-none text-xs ${viewMode === mode ? "bg-[#6A6DE6] text-white shadow-sm" : ""}`}
                                         >
                                             <Icon className="w-3.5 h-3.5" />
                                             <span className="hidden sm:inline">{t(labelKey as never)}</span>
@@ -523,7 +542,18 @@ export default function EnterpriseCustomReport() {
 
                                 {/* Chart type picker (visible in chart, split, dashboard modes) */}
                                 {(viewMode === "chart" || viewMode === "split") && (
-                                    <ChartTypePicker value={chartType} onChange={setChartType} />
+                                    <>
+                                        <ChartTypePicker value={chartType} onChange={setChartType} />
+                                        {selectedMeasures.length >= 2 && (
+                                            <AxisModePicker
+                                                measures={selectedMeasures}
+                                                axisMode={axisMode}
+                                                rightAxisMeasures={rightAxisMeasures}
+                                                onAxisModeChange={setAxisMode}
+                                                onRightAxisMeasuresChange={setRightAxisMeasures}
+                                            />
+                                        )}
+                                    </>
                                 )}
 
                                 <div className="ml-auto flex items-center gap-2">
@@ -552,7 +582,7 @@ export default function EnterpriseCustomReport() {
                             </div>
 
                             {/* Content card */}
-                            <Card className="shadow-sm border-0">
+                            <Card className="overflow-hidden border border-border/60 bg-background/90 shadow-lg shadow-slate-200/40 dark:shadow-none">
                                 <CardContent className="p-0">
                                     {viewMode === "table" && (
                                         <ReportTable
@@ -565,12 +595,28 @@ export default function EnterpriseCustomReport() {
                                         />
                                     )}
                                     {viewMode === "chart" && (
-                                        <div className="p-4">
+                                        <div className="space-y-4 p-5">
+                                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
+                                                <div>
+                                                    <p className="text-sm font-medium text-foreground">{t("enterprise.customReport.chartView")}</p>
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        {t("enterprise.customReport.chartInspectorHint", "Hover a specific bar or point to inspect a single metric precisely.")}
+                                                    </p>
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    {t("enterprise.customReport.rowsShown", {
+                                                        count: reportData.rows.length,
+                                                        defaultValue: "{{count}} rows",
+                                                    })}
+                                                </div>
+                                            </div>
                                             <ReportChart
                                                 data={reportData}
                                                 dimensions={selectedDimensions}
                                                 measures={selectedMeasures}
                                                 chartType={chartType}
+                                                axisMode={axisMode}
+                                                rightAxisMeasures={rightAxisMeasures}
                                                 lang={lang}
                                             />
                                         </div>
@@ -593,6 +639,8 @@ export default function EnterpriseCustomReport() {
                                             dimensions={selectedDimensions}
                                             measures={selectedMeasures}
                                             chartType={chartType}
+                                            axisMode={axisMode}
+                                            rightAxisMeasures={rightAxisMeasures}
                                             lang={lang}
                                             sortBy={sortBy}
                                             sortOrder={sortOrder}
@@ -637,6 +685,15 @@ export default function EnterpriseCustomReport() {
                         <div className="flex items-center justify-between px-4 py-2 border-b shrink-0">
                             <div className="flex items-center gap-2">
                                 <ChartTypePicker value={chartType} onChange={setChartType} />
+                                {selectedMeasures.length >= 2 && (
+                                    <AxisModePicker
+                                        measures={selectedMeasures}
+                                        axisMode={axisMode}
+                                        rightAxisMeasures={rightAxisMeasures}
+                                        onAxisModeChange={setAxisMode}
+                                        onRightAxisMeasuresChange={setRightAxisMeasures}
+                                    />
+                                )}
                             </div>
                             <div className="flex items-center gap-3">
                                 <span className="text-xs text-muted-foreground">
@@ -654,6 +711,8 @@ export default function EnterpriseCustomReport() {
                                 dimensions={selectedDimensions}
                                 measures={selectedMeasures}
                                 chartType={chartType}
+                                axisMode={axisMode}
+                                rightAxisMeasures={rightAxisMeasures}
                                 lang={lang}
                                 fullscreen={true}
                             />

@@ -38,6 +38,7 @@ export type ApiResponseData = Record<string, unknown>
 
 const API_BASE_URL = ENV.API_BASE_URL || '/api'
 const API_TIMEOUT = Number(ENV.API_TIMEOUT || 10000)
+const AUTH_DEBUG_KEY = 'aiproxy:last-auth-error'
 
 // 创建axios实例
 const apiClient = axios.create({
@@ -99,6 +100,13 @@ apiClient.interceptors.response.use(
 
         // Handle 401 unauthorized error (session expired or invalid)
         if (status === 401) {
+            if (typeof window !== 'undefined') {
+                const method = error.config?.method?.toUpperCase() || 'GET'
+                const url = error.config?.url || 'unknown'
+                const message = errorData?.message || error.message || 'Unauthorized'
+                const debugMessage = `[${new Date().toISOString()}] ${method} ${url} -> 401 ${message}`
+                window.sessionStorage.setItem(AUTH_DEBUG_KEY, debugMessage)
+            }
             useAuthStore.getState().logout()
             window.location.href = '/login'
         }

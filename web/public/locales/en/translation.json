@@ -278,6 +278,11 @@
       "totalTokens": "Total Tokens",
       "activeDepartments": "Active Departments",
       "departmentSummary": "Department Summary",
+      "aggLevel": {
+        "level1": "Grouped by Level-1",
+        "level2": "Grouped by Level-2",
+        "leaf": "Leaf departments"
+      },
       "departmentChart": "Usage Distribution",
       "department": "Department",
       "requests": "Requests",
@@ -287,6 +292,7 @@
       "memberCount": "Members",
       "successRate": "Success Rate",
       "avgCost": "Avg Cost",
+      "avgCostPerUser": "Cost per User",
       "uniqueModels": "Models Used",
       "inputTokens": "Input Tokens",
       "outputTokens": "Output Tokens",
@@ -298,7 +304,21 @@
       "viewTrend": "View Trend",
       "modelDistribution": "Model Distribution",
       "model": "Model",
-      "share": "Share"
+      "share": "Share",
+      "subtitle": "Track department adoption, spend concentration, and model mix in one place.",
+      "filtersApplied": "{{count}} filters applied",
+      "activeUsersTotal": "Active Users",
+      "topDepartment": "Top Department",
+      "topModel": "Top Model",
+      "analysisSignal": "Analysis Signal",
+      "noHighlights": "No standout data in the current selection.",
+      "departmentSummaryHint": "{{count}} departments in the current scope",
+      "departmentChartHint": "Top 10 departments by spend concentration.",
+      "modelDistributionHint": "Compare the models taking the largest share of requests and spend.",
+      "topDeptDetail": "{{amount}} · {{requestCount}} requests",
+      "topModelDetail": "{{amount}} · {{share}}% share",
+      "analysisValue": "{{amount}} / req",
+      "analysisDetail": "{{tokens}} tokens / req"
     },
     "ranking": {
       "title": "Employee Ranking",
@@ -337,7 +357,7 @@
       "trend": "Usage Trend",
       "back": "Back to Overview",
       "chartRequests": "Requests",
-      "chartAmount": "Amount ($)",
+      "chartAmount": "Amount (¥)",
       "chartTokens": "Tokens"
     },
     "sidebar": {
@@ -685,11 +705,31 @@
       },
       "templates": {
         "title": "Quick Start",
+        "scenarios": {
+          "cost": "Cost Analysis",
+          "activity": "Adoption Analysis",
+          "stability": "Stability Analysis"
+        },
         "deptCostTop10": "Dept Cost Top 10",
+        "deptCostTop10Desc": "Spot the highest-spend departments first, then compare request volume and active users for scale context.",
+        "deptCostStructure": "Department Cost Mix",
+        "deptCostStructureDesc": "Review total spend alongside cache and reasoning cost share to understand department cost structure.",
+        "modelCostEfficiency": "Model Cost Efficiency",
+        "modelCostEfficiencyDesc": "Compare per-request cost, per-1K token cost, and total spend to find expensive models.",
         "modelUsageTrend": "Model Usage Trend",
+        "modelUsageTrendDesc": "Track requests, tokens, and spend by model over time to identify growth and replacement trends.",
         "userActivityRank": "User Activity Rank",
+        "userActivityRankDesc": "Rank the most active users by requests, spend, model breadth, and success rate.",
+        "deptAdoptionTrend": "Department Adoption Trend",
+        "deptAdoptionTrendDesc": "Use requests, active users, and requests per active user to understand overall adoption momentum.",
         "deptModelPivot": "Dept × Model Pivot",
-        "dailyPerformance": "Daily Performance"
+        "deptModelPivotDesc": "Compare how departments distribute usage and spend across different models.",
+        "dailyPerformance": "Daily Performance",
+        "dailyPerformanceDesc": "Monitor daily volume, average latency, success rate, and error rate in one view.",
+        "modelStabilityWatch": "Model Stability Watch",
+        "modelStabilityWatchDesc": "Compare success rate, error rate, and latency across models to spot unstable ones quickly.",
+        "retryThrottleTrend": "Retry & Throttle Trend",
+        "retryThrottleTrendDesc": "Track retry, throttle, and exception rates over time to diagnose peaks or upstream instability."
       },
       "pivotView": "Pivot Table",
       "pivotMeasure": "Display Measure",
@@ -734,7 +774,15 @@
       "exportForFull": "Export full data",
       "retry": "Retry",
       "recommendGranularity": "Suggested: use {{recommended}}",
-      "drillRoot": "Overview"
+      "drillRoot": "Overview",
+      "axisConfig": "Axis",
+      "axisMode": "Axis Mode",
+      "axisSingle": "Single Axis",
+      "axisAutoDual": "Auto Dual Axis",
+      "axisCustomDual": "Custom Dual Axis",
+      "axisRightMeasures": "Right Axis Metrics",
+      "chartFocusTitle": "Chart Focus",
+      "chartInspectorHint": "Hover a specific bar or point to inspect only the active metric."
     },
     "accessControl": {
       "title": "Access Control",

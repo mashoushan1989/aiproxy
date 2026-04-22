@@ -67,6 +67,26 @@ const KPI_HINTS: Record<string, { zh: string; en: string }> = {
         zh: "分母 = 全局活跃用户数（真实去重）。表格行中的『活跃用户人均』分母则限定在该行维度桶内。",
         en: "Denominator is the global active-user count. Per-row values use the bucket-local active_users denominator.",
     },
+    output_input_ratio: {
+        zh: "分母是总输入 Token，包含缓存读取与缓存创建；如果要看更接近计费口径的净输入，请结合『对账 Token』使用。",
+        en: "The denominator is total input tokens, including cached-read and cache-creation input. Use Reconciliation Tokens for a closer billing-aligned net-input view.",
+    },
+    cached_cost_pct: {
+        zh: "这里只看缓存读取费用占比，不含缓存创建；若看整体缓存成本请使用『缓存总费用占比』。",
+        en: "This only covers cache-read spend. Use Total Cache Cost % for the full cache cost picture.",
+    },
+    cache_total_cost_pct: {
+        zh: "缓存总费用 = 缓存读取费用 + 缓存创建费用，更适合整体评估缓存策略的成本影响。",
+        en: "Total cache cost = cache read + cache creation, better for evaluating overall cache strategy cost impact.",
+    },
+    cache_creation_cost_pct: {
+        zh: "单独看缓存创建成本，适合定位 prompt cache 建立阶段的费用抬升。",
+        en: "Isolates cache-creation spend to diagnose prompt-cache setup cost spikes.",
+    },
+    reasoning_cost_pct: {
+        zh: "推理费用在总费用中的占比，适合观察 reasoning-heavy 模型是否主导成本。",
+        en: "Share of total spend attributable to reasoning, useful for spotting reasoning-heavy cost drivers.",
+    },
     avg_tokens_per_user: {
         zh: "分母 = 全局活跃用户数（真实去重）。表格行中的『活跃用户人均』分母则限定在该行维度桶内。",
         en: "Denominator is the global active-user count. Per-row values use the bucket-local active_users denominator.",
@@ -134,17 +154,17 @@ export function KpiSummaryRow({
 
     return (
         <TooltipProvider delayDuration={100}>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
             {/* Row count card */}
-            <div className="rounded-xl border border-white/20 dark:border-gray-700/30 backdrop-blur-xl bg-white/60 dark:bg-gray-900/60 p-4 shadow-sm">
+            <div className="rounded-2xl border border-border/60 bg-card/85 p-3.5 shadow-sm">
                 <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                         <p className="text-xs text-muted-foreground">{t("enterprise.customReport.totalRows")}</p>
-                        <p className="text-xl font-bold mt-0.5 tabular-nums truncate">
+                        <p className="mt-1 text-lg font-semibold tabular-nums truncate">
                             <AnimatedNumber value={totalRows} format={formatTotalRows} />
                         </p>
                     </div>
-                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#6A6DE6]/20 to-[#8A8DF7]/10 flex items-center justify-center shrink-0">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#6A6DE6]/20 to-[#8A8DF7]/10">
                         <Hash className="w-4 h-4 text-[#6A6DE6]" />
                     </div>
                 </div>
@@ -167,7 +187,7 @@ export function KpiSummaryRow({
                 return (
                     <div
                         key={kpi.key}
-                        className="rounded-xl border border-white/20 dark:border-gray-700/30 backdrop-blur-xl bg-white/60 dark:bg-gray-900/60 p-4 shadow-sm"
+                        className="rounded-2xl border border-border/60 bg-card/85 p-3.5 shadow-sm"
                     >
                         <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -184,11 +204,11 @@ export function KpiSummaryRow({
                                         </Tooltip>
                                     )}
                                 </div>
-                                <p className="text-xl font-bold mt-0.5 tabular-nums truncate">
+                                <p className="mt-1 text-lg font-semibold tabular-nums truncate">
                                     <AnimatedNumber value={kpi.rawValue} format={formatter} />
                                 </p>
                                 {hasComp && (
-                                    <div className={`flex items-center gap-0.5 text-xs mt-0.5 ${
+                                    <div className={`mt-1 flex items-center gap-0.5 text-xs ${
                                         compPct === 0
                                             ? "text-muted-foreground"
                                             : (compPct > 0) === COST_UP_IS_BAD.has(kpi.key)
@@ -204,7 +224,7 @@ export function KpiSummaryRow({
                                     </div>
                                 )}
                             </div>
-                            <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shrink-0`}>
+                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${gradient}`}>
                                 <Icon className={`w-4 h-4 ${iconColor}`} />
                             </div>
                         </div>

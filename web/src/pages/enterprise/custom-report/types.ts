@@ -12,6 +12,8 @@ export type ChartType =
     | "treemap"
     | "radar"
 
+export type AxisMode = "single" | "auto" | "custom"
+
 export type ViewMode = "table" | "chart" | "pivot" | "split" | "dashboard"
 
 // ─── Field catalog ──────────────────────────────────────────────────────────
@@ -97,6 +99,9 @@ export const MEASURE_FIELDS: FieldDef[] = [
     { key: "input_cost_pct", category: "cost_structure" },
     { key: "output_cost_pct", category: "cost_structure" },
     { key: "cached_cost_pct", category: "cost_structure" },
+    { key: "cache_creation_cost_pct", category: "cost_structure" },
+    { key: "cache_total_cost_pct", category: "cost_structure" },
+    { key: "reasoning_cost_pct", category: "cost_structure" },
     { key: "cost_per_1k_tokens", category: "cost_structure" },
     { key: "cost_per_input_1k", category: "cost_structure" },
     { key: "cost_per_output_1k", category: "cost_structure" },
@@ -166,7 +171,7 @@ const FIELD_LABELS: Record<string, { zh: string; en: string }> = {
     // efficiency (per-request)
     avg_tokens_per_req: { zh: "平均Token/请求", en: "Avg Tokens/Req" },
     avg_cost_per_req: { zh: "平均费用/请求", en: "Avg Cost/Req" },
-    avg_input_per_req: { zh: "平均输入Token/请求", en: "Avg Input/Req" },
+    avg_input_per_req: { zh: "平均输入Token/请求(含缓存)", en: "Avg Input/Req (incl. cache)" },
     avg_output_per_req: { zh: "平均输出Token/请求", en: "Avg Output/Req" },
     avg_cached_per_req: { zh: "平均缓存Token/请求", en: "Avg Cached/Req" },
     avg_reasoning_per_req: { zh: "平均推理Token/请求", en: "Avg Reasoning/Req" },
@@ -192,11 +197,14 @@ const FIELD_LABELS: Record<string, { zh: string; en: string }> = {
     retry_rate: { zh: "重试请求率 %", en: "Retried Req Rate %" },
     client_error_rate: { zh: "客户端错误率 %", en: "Client Error Rate %" },
     server_error_rate: { zh: "服务端错误率 %", en: "Server Error Rate %" },
-    output_input_ratio: { zh: "输出/输入比", en: "Output/Input Ratio" },
+    output_input_ratio: { zh: "输出/总输入比(含缓存)", en: "Output / Total Input Ratio (incl. cache)" },
     // cost structure
     input_cost_pct: { zh: "输入费用占比 %", en: "Input Cost %" },
     output_cost_pct: { zh: "输出费用占比 %", en: "Output Cost %" },
-    cached_cost_pct: { zh: "缓存费用占比 %", en: "Cache Cost %" },
+    cached_cost_pct: { zh: "缓存读取费用占比 %", en: "Cache Read Cost %" },
+    cache_creation_cost_pct: { zh: "缓存创建费用占比 %", en: "Cache Creation Cost %" },
+    cache_total_cost_pct: { zh: "缓存总费用占比 %", en: "Total Cache Cost %" },
+    reasoning_cost_pct: { zh: "推理费用占比 %", en: "Reasoning Cost %" },
     cost_per_1k_tokens: { zh: "千Token成本", en: "Cost/1K Tokens" },
     cost_per_input_1k: { zh: "千输入Token混合成本", en: "Blended Cost/1K Input" },
     cost_per_output_1k: { zh: "千输出Token成本", en: "Cost/1K Output" },
@@ -210,6 +218,104 @@ export function getLabel(key: string, lang: string): string {
     const entry = FIELD_LABELS[key]
     if (!entry) return key
     return lang.startsWith("zh") ? entry.zh : entry.en
+}
+
+const FIELD_DESCRIPTIONS: Record<string, { zh: string; en: string }> = {
+    department: {
+        zh: "按最终归属部门聚合，适合看团队使用规模与费用分布。",
+        en: "Aggregate by resolved department to compare team-level usage and spend.",
+    },
+    level1_department: {
+        zh: "按一级部门聚合，适合管理层查看事业部级别趋势。",
+        en: "Aggregate by level-1 department for division-level leadership views.",
+    },
+    level2_department: {
+        zh: "按二级部门聚合，适合查看更细分组织单元表现。",
+        en: "Aggregate by level-2 department for more granular org-unit analysis.",
+    },
+    time_day: {
+        zh: "按自然日分桶，适合近 7 到 60 天趋势分析。",
+        en: "Daily buckets, best for 7-to-60-day trend analysis.",
+    },
+    time_week: {
+        zh: "按自然周分桶，适合长周期趋势和环比观察。",
+        en: "Weekly buckets, best for longer-range trend and WoW analysis.",
+    },
+    time_hour: {
+        zh: "按小时分桶，适合排查峰值、故障和流量波动。",
+        en: "Hourly buckets, best for peak, outage, and burst analysis.",
+    },
+    input_tokens: {
+        zh: "包含缓存读取与缓存创建 Token，对齐 OpenAI prompt_tokens 语义。",
+        en: "Includes cached-read and cache-creation tokens, aligned with OpenAI prompt_tokens semantics.",
+    },
+    avg_input_per_req: {
+        zh: "每次请求的平均输入 Token，分子同样包含缓存相关 Token。",
+        en: "Average input tokens per request, including cache-related input tokens.",
+    },
+    output_input_ratio: {
+        zh: "分母是总输入 Token（含缓存与缓存创建），不是净输入 Token。",
+        en: "Uses total input tokens as the denominator, including cached and cache-creation input.",
+    },
+    cached_cost_pct: {
+        zh: "仅统计缓存读取费用占比，不包含缓存创建费用。",
+        en: "Only the cache-read share of spend; excludes cache-creation costs.",
+    },
+    cache_creation_cost_pct: {
+        zh: "缓存创建费用在总费用中的占比，适合排查 prompt cache 建立成本。",
+        en: "Share of spend coming from cache creation, useful for prompt-cache setup cost analysis.",
+    },
+    cache_total_cost_pct: {
+        zh: "缓存读取 + 缓存创建的合计费用占比，更适合做整体缓存 ROI 评估。",
+        en: "Combined share of cache-read and cache-creation spend for overall cache ROI analysis.",
+    },
+    reasoning_cost_pct: {
+        zh: "推理费用在总费用中的占比，适合分析 reasoning-heavy 模型的成本结构。",
+        en: "Share of spend attributable to reasoning, useful for reasoning-heavy model analysis.",
+    },
+    reconciliation_tokens: {
+        zh: "对账 Token = 输入 Token - 缓存读取 - 缓存创建 + 输出 Token，用于贴近上游计费口径。",
+        en: "Reconciliation tokens = input - cached - cache creation + output, closer to upstream billing semantics.",
+    },
+    tokens_per_second: {
+        zh: "SUM(tokens) / SUM(wall_time)，表示单请求平均速率，不等于系统真实吞吐。",
+        en: "SUM(tokens) / SUM(wall_time): a per-request average rate, not true system throughput.",
+    },
+    output_speed: {
+        zh: "SUM(output_tokens) / SUM(wall_time)，表示单请求平均输出速率。",
+        en: "SUM(output_tokens) / SUM(wall_time): a per-request average output rate.",
+    },
+    avg_tokens_per_user: {
+        zh: "分母是当前分组内的活跃用户数，不是企业全量员工数。",
+        en: "Denominator is active users within the current bucket, not all enterprise users.",
+    },
+    avg_cost_per_user: {
+        zh: "分母是当前分组内的活跃用户数，适合看活跃用户人均成本。",
+        en: "Uses active users within the current bucket as the denominator for spend per active user.",
+    },
+    avg_requests_per_user: {
+        zh: "分母是当前分组内的活跃用户数，适合看活跃用户参与度。",
+        en: "Uses active users within the current bucket as the denominator for requests per active user.",
+    },
+}
+
+export function getFieldDescription(key: string, lang: string): string | null {
+    const entry = FIELD_DESCRIPTIONS[key]
+    if (!entry) return null
+    return lang.startsWith("zh") ? entry.zh : entry.en
+}
+
+export function getFieldUnitTag(key: string, lang: string): string | null {
+    if (PERCENTAGE_FIELDS.has(key)) return lang.startsWith("zh") ? "占比" : "%"
+    if (COST_FIELDS.has(key)) return lang.startsWith("zh") ? "费用" : "Cost"
+    if (key.includes("latency") || key.includes("ttfb") || key.includes("time_ms")) return "ms"
+    if (key === "tokens_per_second" || key === "output_speed") return "t/s"
+    if (key === "output_input_ratio") return lang.startsWith("zh") ? "比例" : "Ratio"
+    if (TIME_DIMENSIONS.has(key)) return lang.startsWith("zh") ? "时间" : "Time"
+    if (key === "department" || key === "level1_department" || key === "level2_department" || key === "user_name" || key === "model") {
+        return lang.startsWith("zh") ? "维度" : "Dim"
+    }
+    return lang.startsWith("zh") ? "计数" : "Count"
 }
 
 // ─── Cell formatting ────────────────────────────────────────────────────────
@@ -297,6 +403,7 @@ export const PERCENTAGE_FIELDS = new Set([
     "success_rate", "error_rate", "exception_rate", "throttle_rate",
     "cache_hit_rate", "retry_rate", "client_error_rate", "server_error_rate",
     "input_cost_pct", "output_cost_pct", "cached_cost_pct",
+    "cache_creation_cost_pct", "cache_total_cost_pct", "reasoning_cost_pct",
 ])
 
 export const COST_FIELDS = new Set([
@@ -330,6 +437,9 @@ export const ADDITIVE_MEASURES = new Set([
 export interface ReportTemplate {
     id: string
     labelKey: string
+    descriptionKey: string
+    scenario: "cost" | "activity" | "stability"
+    icon: string
     dimensions: string[]
     measures: string[]
 }
@@ -338,32 +448,92 @@ export const REPORT_TEMPLATES: ReportTemplate[] = [
     {
         id: "dept_cost_top10",
         labelKey: "enterprise.customReport.templates.deptCostTop10",
+        descriptionKey: "enterprise.customReport.templates.deptCostTop10Desc",
+        scenario: "cost",
+        icon: "¥",
         dimensions: ["department"],
         measures: ["used_amount", "request_count", "active_users"],
     },
     {
-        id: "model_usage_trend",
-        labelKey: "enterprise.customReport.templates.modelUsageTrend",
-        dimensions: ["time_day", "model"],
-        measures: ["request_count", "total_tokens", "used_amount"],
+        id: "dept_cost_structure",
+        labelKey: "enterprise.customReport.templates.deptCostStructure",
+        descriptionKey: "enterprise.customReport.templates.deptCostStructureDesc",
+        scenario: "cost",
+        icon: "◔",
+        dimensions: ["department"],
+        measures: ["used_amount", "cache_total_cost_pct", "reasoning_cost_pct", "avg_cost_per_user"],
+    },
+    {
+        id: "model_cost_efficiency",
+        labelKey: "enterprise.customReport.templates.modelCostEfficiency",
+        descriptionKey: "enterprise.customReport.templates.modelCostEfficiencyDesc",
+        scenario: "cost",
+        icon: "⚖",
+        dimensions: ["model"],
+        measures: ["used_amount", "avg_cost_per_req", "cost_per_input_1k", "cost_per_output_1k"],
     },
     {
         id: "user_activity_rank",
         labelKey: "enterprise.customReport.templates.userActivityRank",
+        descriptionKey: "enterprise.customReport.templates.userActivityRankDesc",
+        scenario: "activity",
+        icon: "👤",
         dimensions: ["user_name"],
         measures: ["request_count", "used_amount", "unique_models", "success_rate"],
     },
     {
-        id: "dept_model_pivot",
-        labelKey: "enterprise.customReport.templates.deptModelPivot",
-        dimensions: ["department", "model"],
-        measures: ["used_amount", "request_count"],
+        id: "model_usage_trend",
+        labelKey: "enterprise.customReport.templates.modelUsageTrend",
+        descriptionKey: "enterprise.customReport.templates.modelUsageTrendDesc",
+        scenario: "activity",
+        icon: "⌁",
+        dimensions: ["time_day", "model"],
+        measures: ["request_count", "total_tokens", "used_amount"],
+    },
+    {
+        id: "dept_adoption_trend",
+        labelKey: "enterprise.customReport.templates.deptAdoptionTrend",
+        descriptionKey: "enterprise.customReport.templates.deptAdoptionTrendDesc",
+        scenario: "activity",
+        icon: "↗",
+        dimensions: ["time_day"],
+        measures: ["request_count", "active_users", "avg_requests_per_user", "total_tokens"],
     },
     {
         id: "daily_performance",
         labelKey: "enterprise.customReport.templates.dailyPerformance",
+        descriptionKey: "enterprise.customReport.templates.dailyPerformanceDesc",
+        scenario: "stability",
+        icon: "⏱",
         dimensions: ["time_day"],
         measures: ["request_count", "avg_latency", "success_rate", "error_rate"],
+    },
+    {
+        id: "model_stability_watch",
+        labelKey: "enterprise.customReport.templates.modelStabilityWatch",
+        descriptionKey: "enterprise.customReport.templates.modelStabilityWatchDesc",
+        scenario: "stability",
+        icon: "⚠",
+        dimensions: ["model"],
+        measures: ["success_rate", "server_error_rate", "client_error_rate", "avg_latency"],
+    },
+    {
+        id: "retry_throttle_trend",
+        labelKey: "enterprise.customReport.templates.retryThrottleTrend",
+        descriptionKey: "enterprise.customReport.templates.retryThrottleTrendDesc",
+        scenario: "stability",
+        icon: "⇄",
+        dimensions: ["time_day"],
+        measures: ["retry_rate", "throttle_rate", "exception_rate", "request_count"],
+    },
+    {
+        id: "dept_model_pivot",
+        labelKey: "enterprise.customReport.templates.deptModelPivot",
+        descriptionKey: "enterprise.customReport.templates.deptModelPivotDesc",
+        scenario: "activity",
+        icon: "⊞",
+        dimensions: ["department", "model"],
+        measures: ["used_amount", "request_count"],
     },
 ]
 
@@ -443,13 +613,13 @@ export function canDrillDown(dimension: string): boolean {
 
 /** Recommended measures for each dimension — shown with a highlight. */
 export const RECOMMENDED_MEASURES: Record<string, string[]> = {
-    department: ["used_amount", "request_count", "active_users", "avg_cost_per_user"],
-    level1_department: ["used_amount", "request_count", "active_users"],
-    level2_department: ["used_amount", "request_count", "active_users"],
+    department: ["used_amount", "request_count", "active_users", "cache_total_cost_pct", "avg_cost_per_user"],
+    level1_department: ["used_amount", "request_count", "active_users", "cache_total_cost_pct"],
+    level2_department: ["used_amount", "request_count", "active_users", "cache_total_cost_pct"],
     user_name: ["used_amount", "request_count", "total_tokens", "unique_models", "success_rate"],
-    model: ["request_count", "total_tokens", "avg_latency", "tokens_per_second", "output_speed", "success_rate", "used_amount"],
-    time_day: ["request_count", "used_amount", "total_tokens", "active_users", "success_rate"],
-    time_week: ["request_count", "used_amount", "total_tokens", "active_users"],
+    model: ["request_count", "total_tokens", "avg_latency", "tokens_per_second", "output_speed", "success_rate", "used_amount", "reasoning_cost_pct"],
+    time_day: ["request_count", "used_amount", "total_tokens", "active_users", "success_rate", "cache_total_cost_pct"],
+    time_week: ["request_count", "used_amount", "total_tokens", "active_users", "cache_total_cost_pct"],
     time_hour: ["request_count", "avg_latency", "success_rate", "error_rate"],
 }
 

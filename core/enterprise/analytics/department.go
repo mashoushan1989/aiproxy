@@ -25,6 +25,7 @@ type DepartmentSummary struct {
 	OutputTokens   int64   `json:"output_tokens"`
 	SuccessRate    float64 `json:"success_rate"`
 	AvgCost        float64 `json:"avg_cost"`
+	AvgCostPerUser float64 `json:"avg_cost_per_user"`
 	UniqueModels   int     `json:"unique_models"`
 }
 
@@ -226,6 +227,9 @@ func GetDepartmentSummaries(startTime, endTime time.Time) ([]DepartmentSummary, 
 		if v.RequestCount > 0 {
 			v.SuccessRate = float64(deptSuccessCount[deptID]) / float64(v.RequestCount) * 100.0
 			v.AvgCost = v.UsedAmount / float64(v.RequestCount)
+		}
+		if v.ActiveUsers > 0 {
+			v.AvgCostPerUser = v.UsedAmount / float64(v.ActiveUsers)
 		}
 
 		summaries = append(summaries, *v)

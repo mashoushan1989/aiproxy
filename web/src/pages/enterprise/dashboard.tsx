@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react"
 import { useNavigate } from "react-router"
 import { useTranslation } from "react-i18next"
 import { useQuery } from "@tanstack/react-query"
-import { BarChart2, DollarSign, Hash, Building2, ArrowRight, TrendingUp, TrendingDown, Minus, ArrowUpDown, ArrowUp, ArrowDown, Settings2 } from "lucide-react"
+import { BarChart2, DollarSign, Hash, Building2, ArrowRight, TrendingUp, TrendingDown, Minus, ArrowUpDown, ArrowUp, ArrowDown, Settings2, Filter, Layers3, Sparkles, Activity, Users } from "lucide-react"
 import * as echarts from "echarts"
 import { type DateRange } from "react-day-picker"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,7 +17,7 @@ import { type TimeRange, getTimeRange, formatNumber, formatAmount, formatRate, u
 import { cn } from "@/lib/utils"
 
 // Column configuration for department summary table
-type DeptSortField = "department_name" | "member_count" | "active_users" | "request_count" | "used_amount" | "total_tokens" | "input_tokens" | "output_tokens" | "success_rate" | "avg_cost" | "unique_models"
+type DeptSortField = "department_name" | "member_count" | "active_users" | "request_count" | "used_amount" | "total_tokens" | "input_tokens" | "output_tokens" | "success_rate" | "avg_cost" | "avg_cost_per_user" | "unique_models"
 type SortDirection = "asc" | "desc"
 
 interface DeptColumnConfig {
@@ -40,9 +40,67 @@ const DEPT_COLUMNS: DeptColumnConfig[] = [
     { key: "member_count", labelKey: "enterprise.dashboard.memberCount", align: "right", defaultVisible: false },
     { key: "success_rate", labelKey: "enterprise.dashboard.successRate", align: "right", defaultVisible: true,
         format: formatRate },
-    { key: "avg_cost", labelKey: "enterprise.dashboard.avgCost", align: "right", defaultVisible: false, format: formatAmount },
+    { key: "avg_cost", labelKey: "enterprise.dashboard.avgCost", align: "right", defaultVisible: true, format: formatAmount },
+    { key: "avg_cost_per_user", labelKey: "enterprise.dashboard.avgCostPerUser", align: "right", defaultVisible: true, format: formatAmount },
     { key: "unique_models", labelKey: "enterprise.dashboard.uniqueModels", align: "right", defaultVisible: false, format: formatNumber },
 ]
+
+// Driven automatically by the hierarchy filter — gives drill-down without extra UI.
+type AggLevel = "level1" | "level2" | "leaf"
+
+function rollupDepartments(
+    items: DepartmentSummary[],
+    level: "level1" | "level2",
+    nameMap: Map<string, string>,
+): DepartmentSummary[] {
+    const isL1 = level === "level1"
+    const acc = new Map<string, DepartmentSummary>()
+    const successWeighted = new Map<string, number>()
+    for (const d of items) {
+        const key = (isL1 ? d.level1_dept_id : d.level2_dept_id) || d.department_id
+        if (!key) continue
+        let cur = acc.get(key)
+        if (!cur) {
+            cur = {
+                department_id: key,
+                department_name: nameMap.get(key) || d.department_name || key,
+                level1_dept_id: isL1 ? key : d.level1_dept_id,
+                level2_dept_id: isL1 ? "" : key,
+                member_count: 0,
+                active_users: 0,
+                request_count: 0,
+                used_amount: 0,
+                total_tokens: 0,
+                input_tokens: 0,
+                output_tokens: 0,
+                success_rate: 0,
+                avg_cost: 0,
+                avg_cost_per_user: 0,
+                unique_models: 0,
+            }
+            acc.set(key, cur)
+        }
+        cur.member_count += d.member_count
+        cur.active_users += d.active_users
+        cur.request_count += d.request_count
+        cur.used_amount += d.used_amount
+        cur.total_tokens += d.total_tokens
+        cur.input_tokens += d.input_tokens
+        cur.output_tokens += d.output_tokens
+        cur.unique_models += d.unique_models
+        successWeighted.set(key, (successWeighted.get(key) ?? 0) + (d.success_rate / 100) * d.request_count)
+    }
+    for (const [key, cur] of acc) {
+        if (cur.request_count > 0) {
+            cur.success_rate = ((successWeighted.get(key) ?? 0) / cur.request_count) * 100
+            cur.avg_cost = cur.used_amount / cur.request_count
+        }
+        if (cur.active_users > 0) {
+            cur.avg_cost_per_user = cur.used_amount / cur.active_users
+        }
+    }
+    return [...acc.values()]
+}
 
 function MetricCard({
     title,
@@ -92,6 +150,33 @@ function MetricCard({
                 </div>
             </CardContent>
         </Card>
+    )
+}
+
+function InsightTile({
+    title,
+    value,
+    detail,
+    icon: Icon,
+}: {
+    title: string
+    value: string
+    detail: string
+    icon: React.ComponentType<{ className?: string }>
+}) {
+    return (
+        <div className="rounded-2xl border border-border/60 bg-background/80 p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
+                    <p className="mt-2 truncate text-base font-semibold text-foreground">{value}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
+                </div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/70">
+                    <Icon className="h-4 w-4 text-[#6A6DE6]" />
+                </div>
+            </div>
+        </div>
     )
 }
 
@@ -152,7 +237,7 @@ function DepartmentPieChart({ departments }: { departments: DepartmentSummary[] 
         }
     }, [departments, isDark])
 
-    return <div ref={chartRef} className="w-full h-80" />
+    return <div ref={chartRef} className="h-[420px] w-full" />
 }
 
 function ModelDistributionChart({ models }: { models: ModelDistributionItem[] }) {
@@ -224,7 +309,7 @@ function ModelDistributionChart({ models }: { models: ModelDistributionItem[] })
         }
     }, [models, isDark, t])
 
-    return <div ref={chartRef} className="w-full h-80" />
+    return <div ref={chartRef} className="h-[420px] w-full" />
 }
 
 export default function EnterpriseDashboard() {
@@ -310,24 +395,46 @@ export default function EnterpriseDashboard() {
         queryFn: () => enterpriseApi.getModelDistribution(departmentFilters, start, end),
     })
 
-    // Filter departments by selected level1/level2 using hierarchy fields
+    const level1NameMap = useMemo(() => {
+        const m = new Map<string, string>()
+        for (const d of level1Departments) m.set(d.department_id, d.name || d.department_id)
+        return m
+    }, [level1Departments])
+
+    const level2NameMap = useMemo(() => {
+        const m = new Map<string, string>()
+        for (const d of allLevel2Departments) m.set(d.department_id, d.name || d.department_id)
+        return m
+    }, [allLevel2Departments])
+
+    const aggLevel: AggLevel = selectedLevel2s.size > 0
+        ? "leaf"
+        : selectedLevel1s.size > 0 ? "level2" : "level1"
+
     const departments = useMemo(() => {
         const allDepts = data?.departments || []
+        let filtered = allDepts
         if (selectedLevel2s.size > 0) {
-            return allDepts.filter(d =>
+            filtered = allDepts.filter(d =>
                 selectedLevel2s.has(d.department_id) || selectedLevel2s.has(d.level2_dept_id)
             )
-        }
-        if (selectedLevel1s.size > 0) {
-            return allDepts.filter(d =>
+        } else if (selectedLevel1s.size > 0) {
+            filtered = allDepts.filter(d =>
                 selectedLevel1s.has(d.department_id) || selectedLevel1s.has(d.level1_dept_id)
             )
         }
-        return allDepts
-    }, [data?.departments, selectedLevel1s, selectedLevel2s])
+
+        if (selectedLevel2s.size > 0) return filtered
+        const level: "level1" | "level2" = selectedLevel1s.size > 0 ? "level2" : "level1"
+        return rollupDepartments(filtered, level, level === "level1" ? level1NameMap : level2NameMap)
+    }, [data?.departments, selectedLevel1s, selectedLevel2s, level1NameMap, level2NameMap])
 
     const models = modelData?.distribution || []
     const changes = comparisonData?.changes
+    const activeFilterCount = selectedLevel1s.size + selectedLevel2s.size + (timeRange === "custom" ? 1 : 0)
+    const customRangeLabel = timeRange === "custom" && customDateRange?.from
+        ? `${customDateRange.from.toLocaleDateString()}${customDateRange.to ? ` - ${customDateRange.to.toLocaleDateString()}` : ""}`
+        : null
 
     // Sort departments
     const sortedDepartments = useMemo(() => {
@@ -351,11 +458,15 @@ export default function EnterpriseDashboard() {
                 requests: acc.requests + (d.request_count || 0),
                 amount: acc.amount + (d.used_amount || 0),
                 tokens: acc.tokens + (d.total_tokens || 0),
-                activeDepts: acc.activeDepts + 1,
+                activeUsers: acc.activeUsers + (d.active_users || 0),
             }),
-            { requests: 0, amount: 0, tokens: 0, activeDepts: 0 },
+            { requests: 0, amount: 0, tokens: 0, activeUsers: 0 },
         )
     }, [departments])
+    const topDepartment = sortedDepartments[0]
+    const topModel = models[0]
+    const avgTokensPerRequest = totals.requests > 0 ? totals.tokens / totals.requests : 0
+    const avgAmountPerRequest = totals.requests > 0 ? totals.amount / totals.requests : 0
 
     const handleSort = (field: DeptSortField) => {
         if (sortField === field) {
@@ -413,10 +524,23 @@ export default function EnterpriseDashboard() {
     }
 
     const visibleColumnConfigs = DEPT_COLUMNS.filter(c => visibleColumns.has(c.key))
+    const clearFilters = () => {
+        setSelectedLevel1s(new Set())
+        setSelectedLevel2s(new Set())
+        setTimeRange("7d")
+        setCustomDateRange(undefined)
+    }
 
     const getCellValue = (dept: DepartmentSummary, col: DeptColumnConfig) => {
         if (col.key === "department_name") {
-            return <span className="font-medium">{dept.department_name || dept.department_id}</span>
+            return (
+                <div className="min-w-0">
+                    <div className="truncate font-medium">{dept.department_name || dept.department_id}</div>
+                    <div className="text-xs text-muted-foreground">
+                        {formatNumber(dept.request_count)} · {dept.active_users} {t("enterprise.dashboard.activeUsers")}
+                    </div>
+                </div>
+            )
         }
         if (col.renderCell) {
             return col.renderCell(dept)
@@ -429,16 +553,53 @@ export default function EnterpriseDashboard() {
     }
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6 bg-[radial-gradient(circle_at_top,_rgba(106,109,230,0.08),_transparent_28%),linear-gradient(180deg,rgba(248,250,252,0.95),rgba(255,255,255,0.98))] p-6 dark:bg-[radial-gradient(circle_at_top,_rgba(106,109,230,0.18),_transparent_24%),linear-gradient(180deg,rgba(2,6,23,0.98),rgba(2,6,23,0.94))]">
             {/* Header with filters */}
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <h1 className="text-2xl font-bold">{t("enterprise.dashboard.title")}</h1>
+            <div className="rounded-[28px] border border-border/60 bg-background/88 p-6 shadow-lg shadow-slate-200/40 backdrop-blur-sm dark:shadow-none">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="space-y-3">
+                        <Badge variant="outline" className="gap-1 rounded-full border-border/70 bg-background/70 px-3 py-1 text-xs text-muted-foreground">
+                            <Sparkles className="h-3.5 w-3.5 text-[#6A6DE6]" />
+                            {t("enterprise.dashboard.title")}
+                        </Badge>
+                        <div>
+                            <h1 className="text-3xl font-semibold tracking-tight">{t("enterprise.dashboard.title")}</h1>
+                            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                                {t("enterprise.dashboard.subtitle")}
+                            </p>
+                        </div>
+                    </div>
 
-                <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex flex-wrap items-center gap-2">
+                        {activeFilterCount > 0 && (
+                            <Badge variant="secondary" className="gap-1 rounded-full px-3 py-1">
+                                <Filter className="h-3.5 w-3.5" />
+                                {t("enterprise.dashboard.filtersApplied", { count: activeFilterCount })}
+                            </Badge>
+                        )}
+                        {selectedLevel1s.size > 0 && (
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                                {t("enterprise.dashboard.level1Dept")} {selectedLevel1s.size}
+                            </Badge>
+                        )}
+                        {selectedLevel2s.size > 0 && (
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                                {t("enterprise.dashboard.level2Dept")} {selectedLevel2s.size}
+                            </Badge>
+                        )}
+                        {customRangeLabel && (
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                                {customRangeLabel}
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap items-center gap-3">
                     {/* Level 1 Department Filter (multi-select) */}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="w-44 justify-start gap-1.5">
+                            <Button variant="outline" className="w-44 justify-start gap-1.5 bg-background/80">
                                 <Building2 className="w-4 h-4 shrink-0" />
                                 <span className="truncate">
                                     {selectedLevel1s.size === 0
@@ -482,7 +643,7 @@ export default function EnterpriseDashboard() {
                     {/* Level 2 Department Filter (multi-select) */}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="w-44 justify-start gap-1.5" disabled={selectedLevel1s.size === 0}>
+                            <Button variant="outline" className="w-44 justify-start gap-1.5 bg-background/80" disabled={selectedLevel1s.size === 0}>
                                 <Building2 className="w-4 h-4 shrink-0" />
                                 <span className="truncate">
                                     {selectedLevel2s.size === 0
@@ -521,14 +682,14 @@ export default function EnterpriseDashboard() {
                     </DropdownMenu>
 
                     {/* Time Range Selector */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <Select value={timeRange} onValueChange={(v) => {
                             setTimeRange(v as TimeRange)
                             if (v !== "custom") {
                                 setCustomDateRange(undefined)
                             }
                         }}>
-                            <SelectTrigger className="w-40">
+                            <SelectTrigger className="w-40 bg-background/80">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -547,8 +708,14 @@ export default function EnterpriseDashboard() {
                                 value={customDateRange}
                                 onChange={setCustomDateRange}
                                 placeholder={t("enterprise.dashboard.selectDateRange")}
-                                className="w-64"
+                                className="w-64 bg-background/80"
                             />
+                        )}
+
+                        {activeFilterCount > 0 && (
+                            <Button variant="ghost" size="sm" onClick={clearFilters}>
+                                {t("common.clearFilters")}
+                            </Button>
                         )}
                     </div>
                 </div>
@@ -575,19 +742,64 @@ export default function EnterpriseDashboard() {
                     changePct={changes?.total_tokens_pct}
                 />
                 <MetricCard
-                    title={t("enterprise.dashboard.activeDepartments")}
-                    value={isLoading ? "..." : totals.activeDepts}
+                    title={t("enterprise.dashboard.activeUsersTotal")}
+                    value={isLoading ? "..." : formatNumber(totals.activeUsers)}
+                    icon={Users}
+                />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <InsightTile
+                    title={t("enterprise.dashboard.topDepartment")}
+                    value={topDepartment?.department_name || t("common.noResult")}
+                    detail={topDepartment
+                        ? t("enterprise.dashboard.topDeptDetail", {
+                            amount: formatAmount(topDepartment.used_amount),
+                            requestCount: formatNumber(topDepartment.request_count),
+                        })
+                        : t("enterprise.dashboard.noHighlights")}
                     icon={Building2}
+                />
+                <InsightTile
+                    title={t("enterprise.dashboard.topModel")}
+                    value={topModel?.model || t("common.noResult")}
+                    detail={topModel
+                        ? t("enterprise.dashboard.topModelDetail", {
+                            amount: formatAmount(topModel.used_amount),
+                            share: topModel.percentage.toFixed(1),
+                        })
+                        : t("enterprise.dashboard.noHighlights")}
+                    icon={Layers3}
+                />
+                <InsightTile
+                    title={t("enterprise.dashboard.analysisSignal")}
+                    value={totals.requests > 0
+                        ? t("enterprise.dashboard.analysisValue", { amount: formatAmount(avgAmountPerRequest) })
+                        : t("common.noResult")}
+                    detail={totals.requests > 0
+                        ? t("enterprise.dashboard.analysisDetail", { tokens: formatNumber(Math.round(avgTokensPerRequest)) })
+                        : t("enterprise.dashboard.noHighlights")}
+                    icon={Activity}
                 />
             </div>
 
             {/* Main content: table + chart */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)]">
                 {/* Department table */}
-                <Card className="lg:col-span-2">
+                <Card className="overflow-hidden border border-border/60 bg-background/92 shadow-lg shadow-slate-200/40 dark:shadow-none">
                     <CardHeader>
                         <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg">{t("enterprise.dashboard.departmentSummary")}</CardTitle>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <CardTitle className="text-lg">{t("enterprise.dashboard.departmentSummary")}</CardTitle>
+                                    <Badge variant="outline" className="rounded-full px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                                        {t(`enterprise.dashboard.aggLevel.${aggLevel}` as never)}
+                                    </Badge>
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    {t("enterprise.dashboard.departmentSummaryHint", { count: sortedDepartments.length })}
+                                </p>
+                            </div>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <Button variant="outline" size="icon" className="h-8 w-8">
@@ -616,6 +828,7 @@ export default function EnterpriseDashboard() {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b text-muted-foreground">
+                                        <th className="py-3 px-2 text-left font-medium">#</th>
                                         {visibleColumnConfigs.map((col) => (
                                             <th
                                                 key={col.key}
@@ -640,18 +853,18 @@ export default function EnterpriseDashboard() {
                                 <tbody>
                                     {isLoading ? (
                                         <tr>
-                                            <td colSpan={visibleColumnConfigs.length + 1} className="text-center py-8 text-muted-foreground">
+                                            <td colSpan={visibleColumnConfigs.length + 2} className="text-center py-8 text-muted-foreground">
                                                 {t("common.loading")}
                                             </td>
                                         </tr>
                                     ) : sortedDepartments.length === 0 ? (
                                         <tr>
-                                            <td colSpan={visibleColumnConfigs.length + 1} className="text-center py-8 text-muted-foreground">
+                                            <td colSpan={visibleColumnConfigs.length + 2} className="text-center py-8 text-muted-foreground">
                                                 {t("common.noResult")}
                                             </td>
                                         </tr>
                                     ) : (
-                                        sortedDepartments.map((dept) => (
+                                        sortedDepartments.map((dept, index) => (
                                             <tr
                                                 key={dept.department_id}
                                                 className="border-b last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
@@ -659,6 +872,11 @@ export default function EnterpriseDashboard() {
                                                     navigate(`${ROUTES.ENTERPRISE_DEPARTMENT}/${dept.department_id}`)
                                                 }
                                             >
+                                                <td className="py-3 px-2">
+                                                    <Badge variant={index < 3 ? "default" : "secondary"} className="min-w-8 justify-center">
+                                                        {index + 1}
+                                                    </Badge>
+                                                </td>
                                                 {visibleColumnConfigs.map((col) => (
                                                     <td
                                                         key={col.key}
@@ -685,15 +903,20 @@ export default function EnterpriseDashboard() {
                 </Card>
 
                 {/* Pie chart */}
-                <Card>
+                <Card className="border border-border/60 bg-background/92 shadow-lg shadow-slate-200/40 dark:shadow-none">
                     <CardHeader>
-                        <CardTitle className="text-lg">{t("enterprise.dashboard.departmentChart")}</CardTitle>
+                        <div>
+                            <CardTitle className="text-lg">{t("enterprise.dashboard.departmentChart")}</CardTitle>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                                {t("enterprise.dashboard.departmentChartHint")}
+                            </p>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         {departments.length > 0 ? (
                             <DepartmentPieChart departments={departments} />
                         ) : (
-                            <div className="h-80 flex items-center justify-center text-muted-foreground">
+                            <div className="flex h-[420px] items-center justify-center text-muted-foreground">
                                 {isLoading ? t("common.loading") : t("common.noResult")}
                             </div>
                         )}
@@ -702,17 +925,22 @@ export default function EnterpriseDashboard() {
             </div>
 
             {/* Model Distribution */}
-            <Card>
+            <Card className="border border-border/60 bg-background/92 shadow-lg shadow-slate-200/40 dark:shadow-none">
                 <CardHeader>
-                    <CardTitle className="text-lg">{t("enterprise.dashboard.modelDistribution")}</CardTitle>
+                    <div>
+                        <CardTitle className="text-lg">{t("enterprise.dashboard.modelDistribution")}</CardTitle>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {t("enterprise.dashboard.modelDistributionHint")}
+                        </p>
+                    </div>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
                         <div>
                             {models.length > 0 ? (
                                 <ModelDistributionChart models={models} />
                             ) : (
-                                <div className="h-80 flex items-center justify-center text-muted-foreground">
+                                <div className="flex h-[420px] items-center justify-center text-muted-foreground">
                                     {isLoading ? t("common.loading") : t("common.noResult")}
                                 </div>
                             )}

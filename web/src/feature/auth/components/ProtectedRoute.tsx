@@ -9,6 +9,10 @@ export function ProtectedRoute() {
 
     useEffect(() => {
         if (!isAuthenticated) {
+            if (typeof window !== 'undefined' && location.pathname !== '/login') {
+                const debugMessage = `[${new Date().toISOString()}] ProtectedRoute redirect from ${location.pathname}${location.search || ''}`
+                window.sessionStorage.setItem('aiproxy:last-auth-error', debugMessage)
+            }
             // Redirect to login, but save the current location
             navigate('/login', { state: { from: location } })
         }

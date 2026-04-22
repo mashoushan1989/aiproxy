@@ -1,11 +1,15 @@
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { KeyRound, Github, FileText } from 'lucide-react'
+import { KeyRound, Github, FileText, Bug, Wand2 } from 'lucide-react'
 import { useTranslation } from "react-i18next"
+import { useNavigate } from "react-router"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 
 import { loginSchema, type LoginFormValues } from "@/validation/auth"
@@ -14,10 +18,48 @@ import { LanguageSelector } from "@/components/common/LanguageSelector"
 import { ParticlesBackground } from "@/components/ui/animation/components/particles-background"
 import { ThemeToggle } from "@/components/common/ThemeToggle"
 import { enterpriseApi } from "@/api/enterprise"
+import { authApi } from "@/api/auth"
+import useAuthStore from "@/store/auth"
+import { ROUTES } from "@/routes/constants"
+
+type PersistedAuthPayload = {
+    state?: {
+        token?: string | null
+        sessionToken?: string | null
+        isAuthenticated?: boolean
+        enterpriseUser?: {
+            name: string
+            avatar: string
+            openId: string
+            role: "viewer" | "analyst" | "admin"
+        } | null
+    }
+}
 
 export default function LoginPage() {
     const { t } = useTranslation()
+    const navigate = useNavigate()
     const loginMutation = useLoginMutation()
+    const { login, loginWithFeishu } = useAuthStore()
+    const [importValue, setImportValue] = useState(() => {
+        if (typeof window === "undefined") return ""
+        return window.sessionStorage.getItem("aiproxy:dev-import-auth") || ""
+    })
+    const [importError, setImportError] = useState<string | null>(null)
+    const [lastAuthError, setLastAuthError] = useState<string | null>(() => {
+        if (typeof window === "undefined") return null
+        return window.sessionStorage.getItem("aiproxy:last-auth-error")
+    })
+    const isDev = import.meta.env.DEV
+    const importHint = useMemo(
+        () => (
+            [
+                "ai.paigod.work -> DevTools -> Application -> Local Storage -> auth-storage",
+                "copy value and paste here",
+            ].join("\n")
+        ),
+        [],
+    )
 
     const form = useForm<LoginFormValues>({
         resolver: zodResolver(loginSchema),
@@ -28,6 +70,102 @@ export default function LoginPage() {
 
     const onSubmit = (values: LoginFormValues) => {
         loginMutation.mutate(values.token)
+    }
+
+    useEffect(() => {
+        if (!isDev || typeof window === "undefined") return
+        window.sessionStorage.setItem("aiproxy:dev-import-auth", importValue)
+    }, [importValue, isDev])
+
+    const validateEnterpriseSession = async (token: string) => {
+        const resp = await fetch("/api/enterprise/role-permissions/my", {
+            headers: {
+                Authorization: token.includes(".") ? `Bearer ${token}` : token,
+            },
+        })
+        if (!resp.ok) {
+            const text = await resp.text()
+            throw new Error(text || `enterprise session validation failed (${resp.status})`)
+        }
+        return resp.json()
+    }
+
+    const validateAdminToken = async (token: string) => {
+        await authApi.getChannelTypeMetas(token)
+    }
+
+    const handleImportPreviewAuth = async () => {
+        const raw = importValue.trim()
+        setImportError(null)
+        setLastAuthError(null)
+        if (typeof window !== "undefined") {
+            window.sessionStorage.removeItem("aiproxy:last-auth-error")
+        }
+        if (!raw) {
+            toast.error("请先粘贴 auth-storage 或 token")
+            return
+        }
+
+        try {
+            if (raw.startsWith("{")) {
+                const parsed = JSON.parse(raw) as PersistedAuthPayload
+                const state = parsed.state
+                if (!state) {
+                    const message = "未识别到 auth-storage.state"
+                    setImportError(message)
+                    toast.error(message)
+                    return
+                }
+
+                const sessionToken = state.sessionToken || state.token
+                if (sessionToken && state.enterpriseUser) {
+                    try {
+                        await validateEnterpriseSession(sessionToken)
+                        if (typeof window !== "undefined") {
+                            window.sessionStorage.removeItem("aiproxy:last-auth-error")
+                        }
+                        loginWithFeishu(sessionToken, state.enterpriseUser)
+                        toast.success("已导入线上登录态")
+                        navigate(ROUTES.ENTERPRISE, { replace: true })
+                        return
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : String(err)
+                        setImportError(`企业登录态校验失败：${message}`)
+                    }
+                }
+
+                if (state.token) {
+                    try {
+                        await validateAdminToken(state.token)
+                        if (typeof window !== "undefined") {
+                            window.sessionStorage.removeItem("aiproxy:last-auth-error")
+                        }
+                        login(state.token)
+                        toast.success("已导入 token")
+                        navigate(ROUTES.ENTERPRISE, { replace: true })
+                        return
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : String(err)
+                        setImportError(`Token 校验失败：${message}`)
+                    }
+                }
+            }
+
+            await validateAdminToken(raw)
+            if (typeof window !== "undefined") {
+                window.sessionStorage.removeItem("aiproxy:last-auth-error")
+            }
+            login(raw)
+            toast.success("已导入 token")
+            navigate(ROUTES.ENTERPRISE, { replace: true })
+        } catch {
+            const message = "导入失败：请确认粘贴的是完整 auth-storage JSON，或一个有效的线上管理 Token"
+            setImportError(message)
+            toast.error(message)
+            if (typeof window !== "undefined") {
+                setLastAuthError(window.sessionStorage.getItem("aiproxy:last-auth-error"))
+            }
+        }
     }
 
     return (
@@ -198,6 +336,65 @@ export default function LoginPage() {
                             </svg>
                             {t("auth.login.feishuLogin")}
                         </Button>
+
+                        {isDev && (
+                            <>
+                                <div className="relative my-4">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <span className="w-full border-t border-gray-200 dark:border-gray-700" />
+                                    </div>
+                                    <div className="relative flex justify-center text-xs uppercase">
+                                        <span className="bg-white dark:bg-gray-900 px-2 text-gray-500">
+                                            Dev Preview
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-dashed border-[#6A6DE6]/30 bg-[#6A6DE6]/5 p-4 space-y-3">
+                                    <div className="flex items-start gap-2">
+                                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#6A6DE6]/10">
+                                            <Bug className="h-4 w-4 text-[#6A6DE6]" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium">导入线上登录态</p>
+                                            <p className="mt-1 text-xs text-muted-foreground whitespace-pre-line">
+                                                {importHint}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <Textarea
+                                        value={importValue}
+                                        onChange={(e) => setImportValue(e.target.value)}
+                                        placeholder='paste auth-storage JSON or token here'
+                                        className="min-h-[120px] bg-white/80 text-xs dark:bg-gray-950/40"
+                                    />
+
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full rounded-lg border-[#6A6DE6]/30 bg-white/80 hover:bg-[#6A6DE6]/5 dark:bg-gray-950/40"
+                                        onClick={handleImportPreviewAuth}
+                                    >
+                                        <Wand2 className="mr-2 h-4 w-4 text-[#6A6DE6]" />
+                                        导入并进入企业分析
+                                    </Button>
+
+                                    {importError && (
+                                        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+                                            {importError}
+                                        </div>
+                                    )}
+
+                                    {lastAuthError && (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                                            <div className="font-medium">最近一次被重定向的原因</div>
+                                            <div className="mt-1 break-all">{lastAuthError}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </CardContent>
 
                     <CardFooter className="border-t border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-900/70 px-6 py-4">
