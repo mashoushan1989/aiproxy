@@ -372,6 +372,79 @@ func TestEnsurePPIOChannelsFromModels_SkipChatPreservesChannels(t *testing.T) {
 	}
 }
 
+// Regression: virtual WebSearch models are declared only in the adaptor
+// ModelList (never returned by /v1/models). EnsurePPIOChannels must merge them
+// into the OpenAI channel Models list so /v1/web-search routing keeps working
+// across sync runs. See commit d253822.
+func TestEnsurePPIOChannels_InjectsVirtualWebSearchModels(t *testing.T) {
+	setupPPIOChannelTestDB(t)
+	seedPPIOChannelsWithModels(t)
+
+	remote := []PPIOModelV2{
+		{
+			ID:        "deepseek-v3",
+			ModelType: "chat",
+			Endpoints: []string{"chat/completions"},
+			Status:    PPIOModelStatusAvailable,
+		},
+	}
+
+	_, err := EnsurePPIOChannels(
+		false, nil, nil,
+		PPIOConfigResult{},
+		remote,
+		[]string{"seedream-5.0-lite"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := modelsByType(t)
+
+	virtual := ppiorelay.VirtualWebSearchModels()
+	if len(virtual) == 0 {
+		t.Fatalf("expected adaptor to declare at least one virtual WebSearch model")
+	}
+
+	want := append([]string{"deepseek-v3"}, virtual...)
+	slices.Sort(want)
+
+	if !slices.Equal(got[model.ChannelTypePPIO], want) {
+		t.Errorf("openai Models = %v, want %v", got[model.ChannelTypePPIO], want)
+	}
+
+	for _, name := range virtual {
+		if !slices.Contains(got[model.ChannelTypePPIO], name) {
+			t.Errorf("virtual WebSearch model %q missing from openai channel Models", name)
+		}
+	}
+}
+
+// Regression: when the upstream chat fetch returns nothing (skipChatUpdate),
+// the virtual-model injection must NOT fire — the channel Models list should
+// be preserved verbatim. Otherwise a transient upstream failure would still
+// overwrite the channel with only the virtual models.
+func TestEnsurePPIOChannels_SkipChatDoesNotInjectVirtuals(t *testing.T) {
+	setupPPIOChannelTestDB(t)
+	seedPPIOChannelsWithModels(t)
+
+	_, err := EnsurePPIOChannels(
+		false, nil, nil,
+		PPIOConfigResult{},
+		nil, // empty remote → skipChatUpdate=true
+		[]string{"seedream-5.0-lite"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := modelsByType(t)
+
+	if want := []string{"stale-openai"}; !slices.Equal(got[model.ChannelTypePPIO], want) {
+		t.Errorf("openai Models = %v, want preserved %v", got[model.ChannelTypePPIO], want)
+	}
+}
+
 // Startup refresh path: both sources empty means preserve all channel Models,
 // only channel configs get updated.
 func TestEnsurePPIOChannelsFromModels_SkipBothPreservesAll(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/labring/aiproxy/core/common"
 	"github.com/labring/aiproxy/core/model"
+	novitarelay "github.com/labring/aiproxy/core/relay/adaptor/novita"
 )
 
 func setupNovitaChannelTestDB(t *testing.T) {
@@ -262,6 +263,79 @@ func TestEnsureNovitaChannelsFromModels_SkipChatPreservesChannels(t *testing.T) 
 		want,
 	) {
 		t.Errorf("multimodal Models = %v, want %v", got[model.ChannelTypeNovitaMultimodal], want)
+	}
+}
+
+// Regression: virtual WebSearch models (novita-tavily-search) are declared
+// only in the adaptor ModelList and never returned by /v1/models.
+// EnsureNovitaChannels must merge them into the OpenAI channel Models list so
+// /v1/web-search routing keeps working. See commit d253822.
+func TestEnsureNovitaChannels_InjectsVirtualWebSearchModels(t *testing.T) {
+	setupNovitaChannelTestDB(t)
+	seedNovitaChannelsWithModels(t)
+
+	remote := []NovitaModelV2{
+		{
+			ID:        "deepseek-v3",
+			ModelType: "chat",
+			Endpoints: []string{"chat/completions"},
+			Status:    NovitaModelStatusAvailable,
+		},
+	}
+
+	_, err := EnsureNovitaChannels(
+		false, nil, nil,
+		NovitaConfigResult{},
+		remote,
+		[]string{"flux-schnell"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := novitaModelsByType(t)
+
+	virtual := novitarelay.VirtualWebSearchModels()
+	if len(virtual) == 0 {
+		t.Fatalf("expected adaptor to declare at least one virtual WebSearch model")
+	}
+
+	want := append([]string{"deepseek-v3"}, virtual...)
+	slices.Sort(want)
+
+	if !slices.Equal(got[model.ChannelTypeNovita], want) {
+		t.Errorf("openai Models = %v, want %v", got[model.ChannelTypeNovita], want)
+	}
+
+	for _, name := range virtual {
+		if !slices.Contains(got[model.ChannelTypeNovita], name) {
+			t.Errorf("virtual WebSearch model %q missing from openai channel Models", name)
+		}
+	}
+}
+
+// Regression: when the upstream chat fetch returns nothing (skipChatUpdate),
+// the virtual-model injection must NOT fire — channel Models should be
+// preserved verbatim so a transient upstream failure can't overwrite the list
+// with only virtual models.
+func TestEnsureNovitaChannels_SkipChatDoesNotInjectVirtuals(t *testing.T) {
+	setupNovitaChannelTestDB(t)
+	seedNovitaChannelsWithModels(t)
+
+	_, err := EnsureNovitaChannels(
+		false, nil, nil,
+		NovitaConfigResult{},
+		nil, // empty remote → skipChatUpdate=true
+		[]string{"flux-schnell"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := novitaModelsByType(t)
+
+	if want := []string{"stale-openai"}; !slices.Equal(got[model.ChannelTypeNovita], want) {
+		t.Errorf("openai Models = %v, want preserved %v", got[model.ChannelTypeNovita], want)
 	}
 }
 
