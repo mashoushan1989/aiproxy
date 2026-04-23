@@ -289,7 +289,7 @@ type ModelCoverageResult struct {
 const multimodalPriceDivisor = 100_000
 
 // PPIOMultimodalModel represents a model from the multimodal-model/list API
-// (api-server.ppio.com/v1/product/multimodal-model/list).
+// (api-server.ppinfra.com/v1/product/multimodal-model/list).
 type PPIOMultimodalModel struct {
 	FusionConfig PPIOMMFusionConfig `json:"fusionConfig"`
 	ModelConfig  PPIOMMModelConfig  `json:"modelConfig"`

@@ -371,8 +371,8 @@ func executeSyncTransaction(
 //
 // This is an independent pipeline from the V1+V2 chat model sync because:
 //   - Multimodal models use SKU-based pricing, not per-token pricing
-//   - The data comes from different API endpoints (api-server.ppio.com)
-//   - The V2 management API (api-server.ppinfra.com) does not return multimodal models
+//   - The data comes from different API endpoints (multimodal-model/list + batch-price on api-server.ppinfra.com)
+//   - The V2 management API (/product/model/list) does not return multimodal models
 func syncMultimodalModels(
 	ctx context.Context,
 	client *PPIOClient,
@@ -502,7 +502,7 @@ func syncMultimodalModels(
 // failed or startup refresh), those channels' Models lists are left unchanged.
 //
 // multimodalModelNames is the list of multimodal (image/video/audio) model
-// names from the dedicated multimodal API (api-server.ppio.com). When non-nil,
+// names from the dedicated multimodal API (api-server.ppinfra.com). When non-nil,
 // the multimodal channel's Models list is replaced entirely. When nil (fetch
 // failed, mgmt token missing, or startup refresh), the multimodal channel's
 // Models list is left unchanged. Supplied separately because the V1/V2 chat

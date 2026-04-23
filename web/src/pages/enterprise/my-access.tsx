@@ -1489,11 +1489,11 @@ export default function MyAccessPage() {
                             <span className="text-sm font-medium">{t("enterprise.myAccess.modelsApiTitle" as never)}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                            <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono">{baseUrl}/v1/models</code>
+                            <code className="flex-1 px-3 py-2 bg-muted rounded text-sm font-mono">{baseUrl}/models</code>
                             <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => copyToClipboard(`${baseUrl}/v1/models`, t("enterprise.myAccess.copied"))}
+                                onClick={() => copyToClipboard(`${baseUrl}/models`, t("enterprise.myAccess.copied"))}
                             >
                                 <Copy className="w-3.5 h-3.5 mr-1" />
                                 {t("enterprise.myAccess.copyUrl")}
