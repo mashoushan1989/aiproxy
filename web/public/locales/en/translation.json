@@ -424,6 +424,8 @@
       "totalRequests": "Requests",
       "uniqueModels": "Models Used",
       "topModels": "Top Models",
+      "modelName": "Model Name",
+      "columns": "Columns",
       "quotaStatus": "Current Period Quota",
       "periodUsed": "Used",
       "periodTotal": "Total Quota",

@@ -413,6 +413,8 @@
       "totalRequests": "请求次数",
       "uniqueModels": "使用模型数",
       "topModels": "Top 模型",
+      "modelName": "模型名称",
+      "columns": "显示列",
       "quotaStatus": "本期配额",
       "periodUsed": "已消耗",
       "periodTotal": "总额度",
