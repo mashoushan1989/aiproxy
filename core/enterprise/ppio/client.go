@@ -318,11 +318,17 @@ func (c *PPIOClient) FetchAllModelsMerged(
 	return v2Models, nil
 }
 
-// ── Multimodal API (api-server.ppio.com) ──────────────────────────────────
+// ── Multimodal API (api-server.ppinfra.com) ───────────────────────────────
+//
+// Unified under the current ppinfra.com domain. The legacy ppio.com host is a
+// live mirror of ppinfra.com (verified: identical payload sizes for both
+// /product/model/list and /product/multimodal-model/list), but ppio.com is
+// flagged deprecated in api.go. Keeping all mgmt endpoints on one host avoids
+// a future outage if the legacy host is retired.
 
 const (
-	ppioMultimodalModelsEndpoint = "https://api-server.ppio.com/v1/product/multimodal-model/list"
-	ppioBatchPriceEndpoint       = "https://api-server.ppio.com/v1/product/batch-price"
+	ppioMultimodalModelsEndpoint = "https://api-server.ppinfra.com/v1/product/multimodal-model/list"
+	ppioBatchPriceEndpoint       = "https://api-server.ppinfra.com/v1/product/batch-price"
 )
 
 // FetchMultimodalModels fetches all multimodal models (image/video/audio) from
