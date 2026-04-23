@@ -21,7 +21,14 @@ import (
 	"github.com/labring/aiproxy/core/relay/utils"
 )
 
-type Adaptor struct{}
+// Adaptor serves channel type 14. The pure_passthrough channel config selects
+// between byte-level relay (PPIO/Novita Anthropic-compat) and protocol
+// conversion (direct Anthropic API, plus OpenAI/Gemini cross-protocol).
+// Dispatch happens per-method inside case mode.Anthropic only; ChatCompletions
+// and Gemini always go through the protocol converter.
+type Adaptor struct {
+	passthroughDelegate passthrough.AnthropicAdaptor
+}
 
 func init() {
 	registry.Register(model.ChannelTypeAnthropic, &Adaptor{})
@@ -45,9 +52,14 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 
 func (a *Adaptor) GetRequestURL(
 	meta *meta.Meta,
-	_ adaptor.Store,
+	store adaptor.Store,
 	c *gin.Context,
 ) (adaptor.RequestURL, error) {
+	// Passthrough: preserve client path and query verbatim.
+	if a.shouldPassthrough(meta) {
+		return a.passthroughDelegate.GetRequestURL(meta, store, c)
+	}
+
 	u := meta.Channel.BaseURL
 
 	pu, err := url.Parse(u)
@@ -148,31 +160,50 @@ func FixBetasWithModel(model string, betas []string, deleteFunc ...func(e string
 	})
 }
 
-// loadAnthropicConfig parses the channel-level Anthropic Config from
-// meta.ChannelConfigs. Returns the zero Config on parse failure so callers
-// can treat parse errors as "feature flags off" without explicit error checks.
-func loadAnthropicConfig(meta *meta.Meta) Config {
+// anthropicConfigCacheKey scopes the parsed Config cache on meta.values.
+const anthropicConfigCacheKey = "anthropic.cfg"
+
+// loadAnthropicConfig returns the channel-level Anthropic Config, memoized on
+// meta for the lifetime of the request. Avoids repeat sonic.Marshal+Unmarshal
+// of ChannelConfigs (~0.2ms each) when multiple Adaptor methods need the same
+// flags on a single request.
+func loadAnthropicConfig(m *meta.Meta) Config {
+	if cached, ok := m.Get(anthropicConfigCacheKey); ok {
+		if cfg, ok := cached.(Config); ok {
+			return cfg
+		}
+	}
+
 	cfg := Config{}
-	_ = meta.ChannelConfigs.LoadConfig(&cfg)
+	_ = m.ChannelConfigs.LoadConfig(&cfg)
+	m.Set(anthropicConfigCacheKey, cfg)
 
 	return cfg
 }
 
+// shouldPassthrough is the single dispatch guard used across Adaptor methods:
+// delegate to the byte-level passthrough path only when mode.Anthropic AND
+// pure_passthrough=true. ChatCompletions/Gemini (cross-protocol conversion)
+// and mode.Anthropic with pure_passthrough=false (direct Anthropic API) fall
+// through to the legacy protocol-handling path.
+func (a *Adaptor) shouldPassthrough(m *meta.Meta) bool {
+	return m.Mode == mode.Anthropic && loadAnthropicConfig(m).PurePassthrough
+}
+
 func (a *Adaptor) SetupRequestHeader(
 	meta *meta.Meta,
-	_ adaptor.Store,
+	store adaptor.Store,
 	c *gin.Context,
 	req *http.Request,
 ) error {
-	req.Header.Set(AnthropicTokenHeader, meta.Channel.Key)
-
-	// Pure-passthrough mode: the client's Anthropic-Version / Anthropic-Beta
-	// are already forwarded verbatim by ConvertRequest. Do not inject defaults
-	// or re-set values here — upstream must see exactly what the client sent,
-	// even if that means a missing header (upstream then returns its own 400).
-	if loadAnthropicConfig(meta).PurePassthrough {
-		return nil
+	// Passthrough: client already has Anthropic-Version/Beta; only install
+	// the channel key. Cross-protocol paths below rebuild the body and need
+	// Anthropic-Version fallback injection.
+	if a.shouldPassthrough(meta) {
+		return a.passthroughDelegate.SetupRequestHeader(meta, store, c, req)
 	}
+
+	req.Header.Set(AnthropicTokenHeader, meta.Channel.Key)
 
 	anthropicVersion := c.Request.Header.Get("Anthropic-Version")
 	if anthropicVersion == "" {
@@ -196,7 +227,7 @@ func (a *Adaptor) SetupRequestHeader(
 
 func (a *Adaptor) ConvertRequest(
 	meta *meta.Meta,
-	_ adaptor.Store,
+	store adaptor.Store,
 	req *http.Request,
 ) (adaptor.ConvertResult, error) {
 	switch meta.Mode {
@@ -219,26 +250,10 @@ func (a *Adaptor) ConvertRequest(
 			Body: bytes.NewReader(data2),
 		}, nil
 	case mode.Anthropic:
-		cfg := loadAnthropicConfig(meta)
-
-		if cfg.PurePassthrough {
-			// Forward client headers verbatim (anthropic-version, anthropic-beta,
-			// x-stainless-*, User-Agent, etc.) so PPIO/Novita see what the SDK
-			// sent. Only hop-by-hop / auth / proxy-identity headers are stripped.
-			header := passthrough.ForwardClientHeaders(req.Header)
-
-			body, replaced, err := passthrough.ReplaceModelInBody(meta, req.Body)
-			if err != nil {
-				return adaptor.ConvertResult{}, err
-			}
-
-			// Drop Content-Length only when body was actually rewritten;
-			// otherwise keep the client value to avoid chunked fallback.
-			if replaced {
-				header.Del("Content-Length")
-			}
-
-			return adaptor.ConvertResult{Header: header, Body: body}, nil
+		// Passthrough delegates to passthrough.AnthropicAdaptor which inherits
+		// ForwardClientHeaders + ReplaceModelInBody from passthrough.Adaptor.
+		if a.shouldPassthrough(meta) {
+			return a.passthroughDelegate.ConvertRequest(meta, store, req)
 		}
 
 		return ConvertRequest(meta, req)
@@ -260,7 +275,7 @@ func (a *Adaptor) DoRequest(
 
 func (a *Adaptor) DoResponse(
 	meta *meta.Meta,
-	_ adaptor.Store,
+	store adaptor.Store,
 	c *gin.Context,
 	resp *http.Response,
 ) (adaptor.DoResponseResult, adaptor.Error) {
@@ -271,8 +286,8 @@ func (a *Adaptor) DoResponse(
 		}
 		return OpenAIHandler(meta, c, resp)
 	case mode.Anthropic:
-		if loadAnthropicConfig(meta).PurePassthrough {
-			return passthrough.DoAnthropicPassthrough(meta, c, resp)
+		if a.shouldPassthrough(meta) {
+			return a.passthroughDelegate.DoResponse(meta, store, c, resp)
 		}
 
 		if utils.IsStreamResponse(resp) {
