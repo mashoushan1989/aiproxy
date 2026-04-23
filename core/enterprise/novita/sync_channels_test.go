@@ -122,14 +122,6 @@ func TestEnsureNovitaChannelsFromModels_UpdatesChannelConfigs(t *testing.T) {
 			if gotPure := ch.Configs.GetBool("pure_passthrough"); !gotPure {
 				t.Fatalf("pure_passthrough = false, want true")
 			}
-
-			if gotSkip := ch.Configs.GetBool("skip_image_conversion"); !gotSkip {
-				t.Fatalf("skip_image_conversion = false, want true")
-			}
-
-			if gotDisable := ch.Configs.GetBool("disable_context_management"); !gotDisable {
-				t.Fatalf("disable_context_management = false, want true")
-			}
 		}
 	}
 }

@@ -623,14 +623,6 @@ func ensureNovitaChannelsFromModels(
 				channels[i].Configs = make(model.ChannelConfigs)
 			}
 
-			if _, ok := channels[i].Configs["skip_image_conversion"]; !ok {
-				channels[i].Configs["skip_image_conversion"] = true
-			}
-
-			if _, ok := channels[i].Configs["disable_context_management"]; !ok {
-				channels[i].Configs["disable_context_management"] = true
-			}
-
 			channels[i].Configs.SetOrInit(model.ChannelConfigPurePassthrough, anthropicPurePassthrough, false)
 
 		case model.ChannelTypeNovitaMultimodal:
@@ -739,8 +731,6 @@ func createNovitaChannels(
 				Sets:    []string{"overseas"},
 				Status:  model.ChannelStatusEnabled,
 				Configs: model.ChannelConfigs{
-					"skip_image_conversion":             true,
-					"disable_context_management":        true,
 					model.ChannelConfigPurePassthrough: anthropicPurePassthrough,
 				},
 			}
