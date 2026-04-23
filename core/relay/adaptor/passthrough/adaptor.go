@@ -360,6 +360,15 @@ func matchPathBaseMap(pathBaseMap map[string]string, path string) (base, suffix 
 	return "", "", false
 }
 
+// errorBodyMaxBytes caps how much of an upstream error body we buffer before
+// forwarding to the client. Real-world Anthropic / OpenAI / PPIO error bodies
+// observed in production are < 10 KiB; 8 MiB is an 800x safety margin that
+// still bounds memory in the face of pathological upstream responses (HTML
+// error pages, runaway stack traces). When the cap fires, WriteTo adds
+// X-Aiproxy-Body-Truncated so clients can distinguish truncation from a
+// genuinely malformed upstream body.
+const errorBodyMaxBytes = 8 * 1024 * 1024
+
 // errorFromResponse captures the upstream error response (status, headers,
 // body) verbatim so the relay layer can forward byte-exact to the client.
 // This honors the extreme-passthrough principle — aiproxy must not rewrite
@@ -370,13 +379,19 @@ func matchPathBaseMap(pathBaseMap map[string]string, path string) (base, suffix 
 func errorFromResponse(_ *meta.Meta, resp *http.Response) adaptor.Error {
 	defer resp.Body.Close()
 
-	// Cap at 1 MiB defensively; real upstream error bodies are <10 KiB.
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	// Read up to errorBodyMaxBytes+1 to detect truncation without a second
+	// syscall. If we read exactly max+1 bytes the upstream had more.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyMaxBytes+1))
+
+	truncated := len(body) > errorBodyMaxBytes
+	if truncated {
+		body = body[:errorBodyMaxBytes]
+	}
 
 	// Clone the header so the caller-side response.Body close doesn't race.
 	hdr := resp.Header.Clone()
 
-	return adaptor.NewPassthroughError(resp.StatusCode, hdr, body)
+	return adaptor.NewPassthroughError(resp.StatusCode, hdr, body, truncated)
 }
 
 // flusherWriter is a writer that also supports explicit flushing.

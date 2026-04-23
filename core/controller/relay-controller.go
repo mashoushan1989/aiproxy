@@ -692,16 +692,11 @@ func ErrorWithRequestID(c *gin.Context, relayErr adaptor.Error) {
 	requestID := middleware.GetRequestID(c)
 
 	// PassthroughError: forward upstream response byte-exact (status, headers, body).
-	// Aiproxy's own request id is exposed via X-Aiproxy-Request-Id header instead
-	// of being injected into the JSON body, so SDK error parsers see the upstream
-	// schema verbatim.
+	// Aiproxy's own request id is set on X-Aiproxy-Request-Id by RequestIDMiddleware
+	// for all responses, so SDK error parsers see the upstream schema verbatim while
+	// still having a stable correlation id.
 	if pe, ok := relayErr.(*adaptor.PassthroughError); ok {
-		if requestID != "" {
-			c.Writer.Header().Set(adaptor.HeaderAiproxyRequestID, requestID)
-		}
-
 		pe.WriteTo(c.Writer)
-
 		return
 	}
 

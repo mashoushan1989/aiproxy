@@ -9,13 +9,20 @@ import (
 // aiproxy needs to make its presence visible to the client without disturbing
 // the upstream response schema.
 const (
-	// HeaderAiproxyRequestID exposes aiproxy's own request id alongside an
-	// upstream error response (instead of injecting into the JSON body).
+	// HeaderAiproxyRequestID exposes aiproxy's own request id on every response.
+	// Passthrough adaptors forward upstream headers verbatim, which can overwrite
+	// X-Request-Id with the upstream value; this dedicated header guarantees a
+	// stable correlation id regardless of upstream behavior.
 	HeaderAiproxyRequestID = "X-Aiproxy-Request-Id"
 	// HeaderAiproxyRetryCount tells the client which attempt produced the
 	// response. "0" means the first attempt succeeded or returned an error
 	// the client received as-is.
 	HeaderAiproxyRetryCount = "X-Aiproxy-Retry-Count"
+	// HeaderAiproxyBodyTruncated signals that the upstream error body exceeded
+	// errorBodyMaxBytes and was truncated before forwarding. Body is still
+	// byte-exact up to the cap, but clients should treat JSON parse failures as
+	// "too large" rather than "upstream sent malformed JSON".
+	HeaderAiproxyBodyTruncated = "X-Aiproxy-Body-Truncated"
 	// ErrorTypeAiproxyTimeout marks errors synthesized by aiproxy when its
 	// own safety-cap timeout fires before the upstream responds. Lets clients
 	// distinguish aiproxy bookkeeping from real upstream timeouts.
@@ -36,16 +43,20 @@ type PassthroughError struct {
 	statusCode int
 	header     http.Header
 	body       []byte
+	truncated  bool
 }
 
 // NewPassthroughError returns an Error that, when handed to the relay error
 // writer, will be forwarded to the client as the verbatim upstream response.
-// header and body must already be fully read from the upstream response.
-func NewPassthroughError(statusCode int, header http.Header, body []byte) Error {
+// header and body must already be fully read from the upstream response;
+// truncated signals that body was cut off at the adaptor's read cap so WriteTo
+// can add X-Aiproxy-Body-Truncated for client-side diagnostics.
+func NewPassthroughError(statusCode int, header http.Header, body []byte, truncated bool) Error {
 	return &PassthroughError{
 		statusCode: statusCode,
 		header:     header,
 		body:       body,
+		truncated:  truncated,
 	}
 }
 
@@ -63,6 +74,10 @@ func (e *PassthroughError) WriteTo(w http.ResponseWriter) {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
+	}
+
+	if e.truncated {
+		w.Header().Set(HeaderAiproxyBodyTruncated, "true")
 	}
 
 	w.WriteHeader(e.statusCode)

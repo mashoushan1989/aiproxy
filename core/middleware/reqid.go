@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/common"
+	"github.com/labring/aiproxy/core/relay/adaptor"
 )
 
 func GenRequestID(t time.Time) string {
@@ -19,6 +20,8 @@ const (
 func SetRequestID(c *gin.Context, id string) {
 	c.Set(RequestID, id)
 	c.Header(RequestIDHeader, id)
+	c.Header(adaptor.HeaderAiproxyRequestID, id)
+
 	log := common.GetLogger(c)
 	SetLogRequestIDField(log.Data, id)
 }
