@@ -148,6 +148,16 @@ func FixBetasWithModel(model string, betas []string, deleteFunc ...func(e string
 	})
 }
 
+// loadAnthropicConfig parses the channel-level Anthropic Config from
+// meta.ChannelConfigs. Returns the zero Config on parse failure so callers
+// can treat parse errors as "feature flags off" without explicit error checks.
+func loadAnthropicConfig(meta *meta.Meta) Config {
+	cfg := Config{}
+	_ = meta.ChannelConfigs.LoadConfig(&cfg)
+
+	return cfg
+}
+
 func (a *Adaptor) SetupRequestHeader(
 	meta *meta.Meta,
 	_ adaptor.Store,
@@ -155,6 +165,14 @@ func (a *Adaptor) SetupRequestHeader(
 	req *http.Request,
 ) error {
 	req.Header.Set(AnthropicTokenHeader, meta.Channel.Key)
+
+	// Pure-passthrough mode: the client's Anthropic-Version / Anthropic-Beta
+	// are already forwarded verbatim by ConvertRequest. Do not inject defaults
+	// or re-set values here — upstream must see exactly what the client sent,
+	// even if that means a missing header (upstream then returns its own 400).
+	if loadAnthropicConfig(meta).PurePassthrough {
+		return nil
+	}
 
 	anthropicVersion := c.Request.Header.Get("Anthropic-Version")
 	if anthropicVersion == "" {
@@ -201,22 +219,23 @@ func (a *Adaptor) ConvertRequest(
 			Body: bytes.NewReader(data2),
 		}, nil
 	case mode.Anthropic:
-		cfg := Config{}
-		if err := meta.ChannelConfigs.LoadConfig(&cfg); err != nil {
-			return adaptor.ConvertResult{}, err
-		}
+		cfg := loadAnthropicConfig(meta)
 
 		if cfg.PurePassthrough {
-			header := http.Header{}
-			if ct := req.Header.Get("Content-Type"); ct != "" {
-				header.Set("Content-Type", ct)
-			}
+			// Forward client headers verbatim (anthropic-version, anthropic-beta,
+			// x-stainless-*, User-Agent, etc.) so PPIO/Novita see what the SDK
+			// sent. Only hop-by-hop / auth / proxy-identity headers are stripped.
+			header := passthrough.ForwardClientHeaders(req.Header)
 
-			// Replace model name when mapping is active; don't forward
-			// Content-Length since model replacement changes body size.
-			body, _, err := passthrough.ReplaceModelInBody(meta, req.Body)
+			body, replaced, err := passthrough.ReplaceModelInBody(meta, req.Body)
 			if err != nil {
 				return adaptor.ConvertResult{}, err
+			}
+
+			// Drop Content-Length only when body was actually rewritten;
+			// otherwise keep the client value to avoid chunked fallback.
+			if replaced {
+				header.Del("Content-Length")
 			}
 
 			return adaptor.ConvertResult{Header: header, Body: body}, nil
@@ -252,8 +271,7 @@ func (a *Adaptor) DoResponse(
 		}
 		return OpenAIHandler(meta, c, resp)
 	case mode.Anthropic:
-		cfg := Config{}
-		if err := meta.ChannelConfigs.LoadConfig(&cfg); err == nil && cfg.PurePassthrough {
+		if loadAnthropicConfig(meta).PurePassthrough {
 			return passthrough.DoAnthropicPassthrough(meta, c, resp)
 		}
 

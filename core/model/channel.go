@@ -102,6 +102,11 @@ const (
 	// specific channel is routed here with a zero-cost synthetic ModelConfig (price=0,
 	// unlimited RPM/TPM, type=Unknown so any endpoint is accepted).
 	ChannelConfigAllowPassthroughUnknown = "allow_passthrough_unknown"
+	// ChannelConfigPurePassthrough marks a channel that forwards client bytes
+	// to the upstream verbatim (no body conversion). Used by adaptors that can
+	// operate in either converting or passthrough mode (e.g. the Anthropic
+	// adaptor serving PPIO/Novita's Anthropic-compatible endpoints).
+	ChannelConfigPurePassthrough = "pure_passthrough"
 )
 
 func (c ChannelConfigs) GetBool(key string) bool {

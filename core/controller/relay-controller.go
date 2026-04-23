@@ -65,7 +65,9 @@ var passthroughSuccessHooks []func(ctx context.Context, channelID int, channelTy
 
 // RegisterPassthroughSuccessHook appends a hook to the passthrough success chain.
 // Must be called during init() — not safe for concurrent use.
-func RegisterPassthroughSuccessHook(fn func(ctx context.Context, channelID int, channelType model.ChannelType, modelName string)) {
+func RegisterPassthroughSuccessHook(
+	fn func(ctx context.Context, channelID int, channelType model.ChannelType, modelName string),
+) {
 	passthroughSuccessHooks = append(passthroughSuccessHooks, fn)
 }
 
@@ -285,6 +287,12 @@ func relay(c *gin.Context, mode mode.Mode, relayController RelayController) {
 		return
 	}
 
+	// X-Aiproxy-Retry-Count is set before the first attempt so even successful
+	// streaming responses (which start writing to c.Writer immediately) carry it.
+	// retryLoop overwrites this header on each subsequent attempt; the value the
+	// client ultimately sees corresponds to the attempt that produced the response.
+	c.Writer.Header().Set(adaptor.HeaderAiproxyRetryCount, "0")
+
 	// First attempt
 	result, retry := RelayHelper(c, meta, relayController.Handler)
 
@@ -302,6 +310,14 @@ func relay(c *gin.Context, mode mode.Mode, relayController RelayController) {
 	retryTimes := int(config.GetRetryTimes())
 	if mc.RetryTimes > 0 {
 		retryTimes = int(mc.RetryTimes)
+	}
+
+	// Extreme passthrough: a retry to a different channel would replace the
+	// upstream's verbatim error with a different upstream's error, defeating
+	// the goal of "client sees exactly what PPIO/Novita said". Force zero
+	// retries so the first-attempt error is what the client gets.
+	if meta.IsPassthrough() {
+		retryTimes = 0
 	}
 
 	if handleRelayResult(c, result.Error, retry, retryTimes) {
@@ -541,6 +557,10 @@ func retryLoop(c *gin.Context, mode mode.Mode, state *retryState, relayControlle
 
 		log.Data["retry"] = strconv.Itoa(i + 1)
 
+		// Reflect attempt count in client-visible header (overwrites prior value).
+		// Must be set before RelayHelper which may start writing the response.
+		c.Writer.Header().Set(adaptor.HeaderAiproxyRetryCount, strconv.Itoa(i+1))
+
 		log.Warnf("using channel %s (type: %d, id: %d) to retry (remain times %d)",
 			newChannel.Name,
 			newChannel.Type,
@@ -670,6 +690,21 @@ func RelayNotImplemented(c *gin.Context) {
 
 func ErrorWithRequestID(c *gin.Context, relayErr adaptor.Error) {
 	requestID := middleware.GetRequestID(c)
+
+	// PassthroughError: forward upstream response byte-exact (status, headers, body).
+	// Aiproxy's own request id is exposed via X-Aiproxy-Request-Id header instead
+	// of being injected into the JSON body, so SDK error parsers see the upstream
+	// schema verbatim.
+	if pe, ok := relayErr.(*adaptor.PassthroughError); ok {
+		if requestID != "" {
+			c.Writer.Header().Set(adaptor.HeaderAiproxyRequestID, requestID)
+		}
+
+		pe.WriteTo(c.Writer)
+
+		return
+	}
+
 	if requestID == "" {
 		c.JSON(relayErr.StatusCode(), relayErr)
 		return

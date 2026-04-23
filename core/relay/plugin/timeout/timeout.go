@@ -7,7 +7,6 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
 	"github.com/labring/aiproxy/core/common"
-	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
 	"github.com/labring/aiproxy/core/relay/mode"
@@ -23,17 +22,6 @@ type Timeout struct {
 
 func NewTimeoutPlugin() plugin.Plugin {
 	return &Timeout{}
-}
-
-// isPassthroughChannel returns true for channels that embed the passthrough adaptor.
-// Update this when adding new passthrough-based adaptors.
-func isPassthroughChannel(chType model.ChannelType) bool {
-	switch chType {
-	case model.ChannelTypePPIO, model.ChannelTypePPIOMultimodal, model.ChannelTypeNovita, model.ChannelTypeNovitaMultimodal:
-		return true
-	default:
-		return false
-	}
 }
 
 func (t *Timeout) ConvertRequest(
@@ -71,12 +59,19 @@ func (t *Timeout) ConvertRequest(
 		mode.Completions,
 		mode.Responses,
 		mode.Anthropic:
-		// Skip TTFB heuristic for passthrough; ModelConfig override (below) still applies.
-		if isPassthroughChannel(meta.Channel.Type) {
+		// Compute stream first so ModelConfig.StreamRequestTimeout override
+		// below applies correctly to passthrough channels too.
+		stream, _ = isStream(req)
+
+		// Passthrough channels: skip TTFB heuristic (token estimation is
+		// unreliable for pa/claude-*, and upstream manages its own timeouts).
+		// 20min is a safety cap so aiproxy is always the second timer to fire —
+		// upstream should time out first.
+		if meta.IsPassthrough() {
+			meta.RequestTimeout = 20 * time.Minute
 			break
 		}
 
-		stream, _ = isStream(req)
 		inputTokens := meta.RequestUsage.InputTokens
 		if stream {
 			switch {

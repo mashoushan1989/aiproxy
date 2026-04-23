@@ -160,6 +160,19 @@ func (m *Meta) ClearValues() {
 	clear(m.values)
 }
 
+// IsPassthrough reports whether the current channel should be treated as a
+// byte-level passthrough. Two cases qualify:
+//  1. The channel type embeds the passthrough adaptor (PPIO/Novita OpenAI).
+//  2. The channel is configured with pure_passthrough=true (e.g. PPIO/Novita
+//     Anthropic-compat channels that reuse the anthropic adaptor shell).
+//
+// Centralizing the check avoids drift between the timeout plugin and the
+// relay controller, both of which branch on this property.
+func (m *Meta) IsPassthrough() bool {
+	return model.IsPassthroughChannel(m.Channel.Type) ||
+		m.ChannelConfigs.GetBool(model.ChannelConfigPurePassthrough)
+}
+
 func (m *Meta) Set(key string, value any) {
 	m.values[key] = value
 }

@@ -110,3 +110,23 @@ var channelTypeNames = map[ChannelType]string{
 	ChannelTypePPIOMultimodal:          "ppio multimodal",
 	ChannelTypeNovitaMultimodal:        "海外 multimodal",
 }
+
+// IsPassthroughChannel returns true for channel types whose adaptors embed
+// the passthrough.Adaptor base — i.e. they forward request/response bytes
+// verbatim instead of going through protocol conversion. Update this when
+// adding a new passthrough-based channel type.
+//
+// Used by:
+//   - timeout plugin: skip TTFB heuristic for these channels.
+//   - relay controller: optionally suppress retries to honor extreme passthrough.
+func IsPassthroughChannel(chType ChannelType) bool {
+	switch chType {
+	case ChannelTypePPIO,
+		ChannelTypePPIOMultimodal,
+		ChannelTypeNovita,
+		ChannelTypeNovitaMultimodal:
+		return true
+	default:
+		return false
+	}
+}

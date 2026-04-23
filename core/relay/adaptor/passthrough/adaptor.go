@@ -21,7 +21,6 @@ import (
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
 	"github.com/labring/aiproxy/core/relay/mode"
-	relaymodel "github.com/labring/aiproxy/core/relay/model"
 	"github.com/labring/aiproxy/core/relay/utils"
 )
 
@@ -36,24 +35,11 @@ const (
 	drainTimeout = 2 * time.Second
 )
 
-// hopByHopHeaders lists HTTP/1.1 hop-by-hop headers that must not be forwarded
-// between client and upstream when acting as a reverse proxy.
-var hopByHopHeaders = map[string]bool{
-	"Connection":          true,
-	"Keep-Alive":          true,
-	"Proxy-Authenticate":  true,
-	"Proxy-Authorization": true,
-	"Te":                  true,
-	"Trailers":            true,
-	"Transfer-Encoding":   true,
-	"Upgrade":             true,
-}
-
 // forwardResponseHeaders copies upstream response headers to the Gin context,
 // skipping hop-by-hop headers that must not be forwarded by a reverse proxy.
 func forwardResponseHeaders(c *gin.Context, header http.Header) {
 	for k, vs := range header {
-		if hopByHopHeaders[k] {
+		if adaptor.HopByHopHeaders[k] {
 			continue
 		}
 
@@ -63,15 +49,64 @@ func forwardResponseHeaders(c *gin.Context, header http.Header) {
 	}
 }
 
-// clientHeadersToForward lists request headers from the client that should be
-// forwarded verbatim to the upstream. Authorization is excluded because
-// SetupRequestHeader replaces it with the channel key.
-var clientHeadersToForward = []string{
-	"Content-Type",
-	"Content-Length",
-	"anthropic-version",
-	"anthropic-beta",
-	"openai-beta",
+// ClientHeadersToStrip lists request headers that must NOT be forwarded to
+// the upstream. All other headers (User-Agent, x-stainless-*, custom trace
+// headers, anthropic-version, Content-Length, etc.) are forwarded verbatim —
+// extreme passthrough means upstream sees what the client sent.
+//
+// Stripped categories:
+//   - Hop-by-hop (RFC 7230 §6.1): not meaningful end-to-end.
+//   - Auth/Identity that aiproxy owns: Authorization is replaced by
+//     SetupRequestHeader; Host is set by http.Client per target URL.
+//   - Source identity: X-Forwarded-For/X-Real-Ip/Forwarded/Via leak proxy
+//     topology and could affect upstream rate limiting.
+//   - Cookie: AI APIs are stateless; forwarding cookies risks cross-tenant
+//     leakage if a shared proxy is in front of aiproxy.
+//
+// Content-Length is deliberately NOT stripped: when ReplaceModelInBody does
+// not modify the body, keeping the client's Content-Length avoids stdlib
+// falling back to chunked transfer encoding (some upstreams reject chunked
+// POSTs). When the body IS modified, callers must Del("Content-Length") so
+// stdlib recomputes it. See ConvertRequest below.
+//
+// Exported so other adaptors (e.g. anthropic pure_passthrough mode) can apply
+// the same filter. Keys must be in http.CanonicalHeaderKey form.
+var ClientHeadersToStrip = map[string]bool{
+	"Host":                true,
+	"Authorization":       true,
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
+	"Proxy-Authorization": true,
+	"Te":                  true,
+	"Trailers":            true,
+	"Transfer-Encoding":   true,
+	"Upgrade":             true,
+	"X-Forwarded-For":     true,
+	"X-Forwarded-Host":    true,
+	"X-Forwarded-Proto":   true,
+	"X-Real-Ip":           true,
+	"Forwarded":           true,
+	"Via":                 true,
+	"Cookie":              true,
+}
+
+// ForwardClientHeaders copies request headers from the client to a new Header,
+// skipping entries in ClientHeadersToStrip. Shared by all passthrough paths.
+func ForwardClientHeaders(src http.Header) http.Header {
+	out := make(http.Header, len(src))
+
+	for k, vs := range src {
+		if ClientHeadersToStrip[k] {
+			continue
+		}
+
+		for _, v := range vs {
+			out.Add(k, v)
+		}
+	}
+
+	return out
 }
 
 // Adaptor is a zero-modification relay adaptor.
@@ -121,27 +156,27 @@ func (a *Adaptor) NativeMode(m mode.Mode) bool {
 	return a.SupportMode(m)
 }
 
-// ConvertRequest returns the original request body with only the "model" field
-// replaced when model mapping is active. All other fields are forwarded unchanged.
+// ConvertRequest forwards client request headers and body verbatim to the
+// upstream, with two exceptions:
+//   - Headers in ClientHeadersToStrip are removed (see comment there).
+//   - The "model" field in JSON body is rewritten if model mapping is active.
+//
 // Authorization is replaced later by SetupRequestHeader.
 func (a *Adaptor) ConvertRequest(
 	m *meta.Meta,
 	_ adaptor.Store,
 	req *http.Request,
 ) (adaptor.ConvertResult, error) {
-	header := make(http.Header, len(clientHeadersToForward))
-
-	for _, h := range clientHeadersToForward {
-		if v := req.Header.Get(h); v != "" {
-			header.Set(h, v)
-		}
-	}
+	header := ForwardClientHeaders(req.Header)
 
 	body, replaced, err := ReplaceModelInBody(m, req.Body)
 	if err != nil {
 		return adaptor.ConvertResult{}, err
 	}
 
+	// Model replacement changes body length; drop the stale Content-Length so
+	// stdlib recomputes it. When no replacement happened we keep the client's
+	// Content-Length to avoid falling back to chunked transfer encoding.
 	if replaced {
 		header.Del("Content-Length")
 	}
@@ -286,7 +321,7 @@ func GetPathBaseMap(configs model.ChannelConfigs) map[string]string {
 	switch m := v.(type) {
 	case map[string]string:
 		return m
-	case map[string]interface{}:
+	case map[string]any:
 		result := make(map[string]string, len(m))
 
 		for k, val := range m {
@@ -325,20 +360,23 @@ func matchPathBaseMap(pathBaseMap map[string]string, path string) (base, suffix 
 	return "", "", false
 }
 
-// errorFromResponse reads the upstream error body and wraps it as an
-// adaptor.Error appropriate for the current relay mode.
-// The response body is fully consumed and closed before this function returns.
-func errorFromResponse(m *meta.Meta, resp *http.Response) adaptor.Error {
+// errorFromResponse captures the upstream error response (status, headers,
+// body) verbatim so the relay layer can forward byte-exact to the client.
+// This honors the extreme-passthrough principle — aiproxy must not rewrite
+// upstream errors lest SDKs that rely on the upstream schema misclassify them.
+//
+// We do NOT write to c.Writer here: a retry to another channel may follow,
+// and only the final attempt may produce client-visible bytes.
+func errorFromResponse(_ *meta.Meta, resp *http.Response) adaptor.Error {
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	// Cap at 1 MiB defensively; real upstream error bodies are <10 KiB.
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 
-	return relaymodel.WrapperErrorWithMessage(
-		m.Mode,
-		resp.StatusCode,
-		string(body),
-		relaymodel.WithType(relaymodel.ErrorTypeUpstream),
-	)
+	// Clone the header so the caller-side response.Body close doesn't race.
+	hdr := resp.Header.Clone()
+
+	return adaptor.NewPassthroughError(resp.StatusCode, hdr, body)
 }
 
 // flusherWriter is a writer that also supports explicit flushing.
@@ -364,6 +402,7 @@ func flushCopy(w flusherWriter, src io.Reader) (int64, error) {
 		if nr > 0 {
 			nw, writeErr := w.Write(buf[:nr])
 			written += int64(nw)
+
 			w.Flush()
 
 			if writeErr != nil {

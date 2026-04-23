@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -270,11 +271,19 @@ func doRequest(
 			)
 		}
 
-		if errors.Is(err, context.DeadlineExceeded) {
+		// Upstream timeout: either context.DeadlineExceeded (aiproxy's own
+		// deadline fired), transport.ResponseHeaderTimeout (TTFB cap fired),
+		// or any other net.Error.Timeout. All map to the same client-visible
+		// 504 so clients can distinguish from real upstream 504s via type.
+		var ne net.Error
+		if errors.Is(err, context.DeadlineExceeded) ||
+			(errors.As(err, &ne) && ne.Timeout()) ||
+			strings.Contains(err.Error(), "timeout awaiting response headers") {
 			return nil, relaymodel.WrapperErrorWithMessage(
 				meta.Mode,
-				http.StatusRequestTimeout,
-				"request timeout: "+err.Error(),
+				http.StatusGatewayTimeout,
+				"aiproxy_upstream_timeout: "+err.Error(),
+				relaymodel.WithType(adaptor.ErrorTypeAiproxyTimeout),
 			)
 		}
 
@@ -291,14 +300,6 @@ func doRequest(
 				meta.Mode,
 				http.StatusInternalServerError,
 				"request unexpected eof: "+err.Error(),
-			)
-		}
-
-		if strings.Contains(err.Error(), "timeout awaiting response headers") {
-			return nil, relaymodel.WrapperErrorWithMessage(
-				meta.Mode,
-				http.StatusRequestTimeout,
-				"request timeout: "+err.Error(),
 			)
 		}
 
