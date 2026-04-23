@@ -635,20 +635,9 @@ func ensurePPIOChannelsFromModels(
 			if !skipChatUpdate {
 				channels[i].Models = anthropicModels
 			}
-			// Ensure recommended defaults for PPIO's Anthropic endpoint:
-			// skip_image_conversion — PPIO natively supports URL image sources
-			// disable_context_management — PPIO rejects the beta field with 400
-			// pure_passthrough — forward requests verbatim without body transformation
+
 			if channels[i].Configs == nil {
 				channels[i].Configs = make(model.ChannelConfigs)
-			}
-
-			if _, ok := channels[i].Configs["skip_image_conversion"]; !ok {
-				channels[i].Configs["skip_image_conversion"] = true
-			}
-
-			if _, ok := channels[i].Configs["disable_context_management"]; !ok {
-				channels[i].Configs["disable_context_management"] = true
 			}
 
 			channels[i].Configs.SetOrInit(model.ChannelConfigPurePassthrough, anthropicPurePassthrough, false)
@@ -771,10 +760,7 @@ func createPPIOChannels(
 				Key:     cfg.APIKey,
 				Models:  anthropicModels,
 				Status:  model.ChannelStatusEnabled,
-				// See ensurePPIOChannelsFromModels for rationale on each key.
 				Configs: model.ChannelConfigs{
-					"skip_image_conversion":             true,
-					"disable_context_management":        true,
 					model.ChannelConfigPurePassthrough: anthropicPurePassthrough,
 				},
 			}

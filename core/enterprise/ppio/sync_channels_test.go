@@ -148,8 +148,9 @@ func TestEnsurePPIOChannelsFromModels_UpdatesChannelConfigs(t *testing.T) {
 				t.Fatalf("existing skip_image_conversion should be preserved, got %#v", gotSkip)
 			}
 
-			if gotDisable := ch.Configs.GetBool("disable_context_management"); !gotDisable {
-				t.Fatalf("disable_context_management = false, want true")
+			if _, hasDisable := ch.Configs["disable_context_management"]; hasDisable {
+				t.Fatalf("sync should no longer default disable_context_management (PPIO now supports it): %#v",
+					ch.Configs["disable_context_management"])
 			}
 		}
 	}

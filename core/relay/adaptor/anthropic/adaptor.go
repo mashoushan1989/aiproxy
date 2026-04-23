@@ -68,12 +68,7 @@ func (a *Adaptor) GetRequestURL(
 	}
 
 	result := pu.JoinPath("/messages")
-
-	// Do NOT forward the ?beta= query parameter to the upstream.
-	// Beta features are already declared via the Anthropic-Beta header
-	// (see SetupRequestHeader). The query parameter is a redundant
-	// Anthropic-specific URL convention that third-party upstreams
-	// (e.g. PPIO) do not support — forwarding it causes 400/timeout.
+	result.RawQuery = c.Request.URL.RawQuery
 
 	return adaptor.RequestURL{
 		Method: http.MethodPost,
