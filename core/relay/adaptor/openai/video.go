@@ -100,7 +100,7 @@ func VideoHandler(
 		GroupID:   meta.Group.ID,
 		TokenID:   meta.Token.ID,
 		ChannelID: meta.Channel.ID,
-		Model:     meta.ActualModel,
+		Model:     meta.OriginModel,
 		ExpiresAt: time.Now().Add(time.Hour * 24),
 	})
 	if err != nil {
@@ -169,7 +169,7 @@ func VideoGetJobsHandler(
 			GroupID:   meta.Group.ID,
 			TokenID:   meta.Token.ID,
 			ChannelID: meta.Channel.ID,
-			Model:     meta.ActualModel,
+			Model:     meta.OriginModel,
 			ExpiresAt: time.Unix(expiresAt, 0),
 		})
 		if err != nil {
