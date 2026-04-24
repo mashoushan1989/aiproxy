@@ -386,21 +386,28 @@ func GetMyAccess(c *gin.Context) {
 				continue
 			}
 
-			owner := chs[0].Type.String()
-			key := modelOwnerPair{model: modelName, owner: owner}
-			if _, exists := modelOwnerSeen[key]; exists {
-				continue
-			}
+			// A single (set, model) pair can be served by multiple channels of
+			// different types (e.g. overseas set has both Oversea(OpenAI) and
+			// Oversea(Anthropic) channels serving the same model). Surface the
+			// model under every distinct owner so users see it in each provider
+			// group, not just the one that happened to sort first.
+			for _, ch := range chs {
+				owner := ch.Type.String()
+				key := modelOwnerPair{model: modelName, owner: owner}
+				if _, exists := modelOwnerSeen[key]; exists {
+					continue
+				}
 
-			modelOwnerSeen[key] = struct{}{}
-			modelOwners[modelName] = append(modelOwners[modelName], owner)
+				modelOwnerSeen[key] = struct{}{}
+				modelOwners[modelName] = append(modelOwners[modelName], owner)
 
-			if _, exists := ownerPrimarySet[owner]; !exists {
-				ownerPrimarySet[owner] = set
-			}
+				if _, exists := ownerPrimarySet[owner]; !exists {
+					ownerPrimarySet[owner] = set
+				}
 
-			if _, exists := ownerDisplayName[owner]; !exists && chs[0].Name != "" {
-				ownerDisplayName[owner] = chs[0].Name
+				if _, exists := ownerDisplayName[owner]; !exists && ch.Name != "" {
+					ownerDisplayName[owner] = ch.Name
+				}
 			}
 		}
 	}
