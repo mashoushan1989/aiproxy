@@ -5,13 +5,13 @@ package ppio
 import (
 	"context"
 	"fmt"
-	"log"
 	"slices"
 
 	"github.com/labring/aiproxy/core/controller"
 	"github.com/labring/aiproxy/core/enterprise/synccommon"
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/mode"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -92,7 +92,9 @@ func doDiscover(ctx context.Context, modelName string) {
 		log.Printf("ppio autodiscover: client creation failed (non-fatal): %v", clientErr)
 	}
 
-	// Register with per-request pricing (or zero if no pricing found)
+	// Register with per-request pricing (or zero if no pricing found).
+	// SyncedFrom is intentionally empty — this row is autodiscovered, not from
+	// the regular sync. Sync code MUST NOT manage its lifecycle (per CanSyncOwn).
 	mc := model.ModelConfig{
 		Model: modelName,
 		Owner: model.ModelOwnerPPIO,
@@ -105,7 +107,7 @@ func doDiscover(ctx context.Context, modelName string) {
 		mc.Price.PerRequestPrice = model.ZeroNullFloat64(perRequestPrice)
 	}
 
-	if err := model.DB.Save(&mc).Error; err != nil {
+	if err := model.OnConflictDoNothing().Create(&mc).Error; err != nil {
 		log.Printf("ppio autodiscover: failed to register %s: %v", modelName, err)
 		return
 	}
@@ -192,6 +194,8 @@ func discoverV2Model(
 // mode type are sourced from the management API; otherwise sensible
 // zero-cost defaults apply with PPIONative as the type.
 func registerPPIONativeModel(modelName string, remoteModel *PPIOModelV2) error {
+	// SyncedFrom intentionally empty — autodiscover writes "non-sync" rows
+	// that the regular sync MUST NOT touch.
 	mc := model.ModelConfig{
 		Model: modelName,
 		Owner: model.ModelOwnerPPIO,
@@ -218,7 +222,7 @@ func registerPPIONativeModel(modelName string, remoteModel *PPIOModelV2) error {
 		setPriceFromV2Model(&mc.Price, remoteModel)
 	}
 
-	return model.DB.Save(&mc).Error
+	return model.OnConflictDoNothing().Create(&mc).Error
 }
 
 // addModelToMultimodalChannel adds a model to the first PPIO multimodal

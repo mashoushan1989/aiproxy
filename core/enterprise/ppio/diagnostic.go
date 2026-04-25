@@ -160,7 +160,11 @@ func ComparePPIOModelsV2(remoteModels []PPIOModelV2, opts SyncOptions) (*SyncDif
 		},
 	}
 
-	// Find models to add and update
+	// Find models to add and update.
+	// Ownership for sync purposes is determined by ModelConfig.SyncedFrom, NOT
+	// the legacy Owner field. A row owned by another sync (or by autodiscover
+	// with empty SyncedFrom) is "Shared" — informational only, sync code will
+	// SKIP it via CanSyncOwn.
 	for _, remoteModel := range available {
 		localModel, exists := localModelMap[remoteModel.ID]
 		if !exists {
@@ -170,9 +174,9 @@ func ComparePPIOModelsV2(remoteModels []PPIOModelV2, opts SyncOptions) (*SyncDif
 				NewConfig: buildModelV2ConfigMap(&remoteModel),
 			})
 			diff.Summary.ToAdd++
-		} else if localModel.Owner != model.ModelOwnerPPIO {
-			// Model exists but owned by another provider.
-			// Track in Shared so it appears in channels and on the UI.
+		} else if localModel.SyncedFrom != synccommon.SyncedFromPPIO {
+			// Owned by another sync, or non-sync (autodiscover/manual). Track
+			// in Shared so the UI shows it but sync will not modify it.
 			diff.Summary.CrossOwner++
 			diff.Changes.Shared = append(diff.Changes.Shared, ModelDiff{
 				ModelID:   remoteModel.ID,
@@ -194,12 +198,12 @@ func ComparePPIOModelsV2(remoteModels []PPIOModelV2, opts SyncOptions) (*SyncDif
 		}
 	}
 
-	// Always detect models that exist locally but not remotely (owned by PPIO).
-	// This populates diff for informational display regardless of whether the user
-	// has opted in to deletion. Actual deletion is gated separately in
-	// executeSyncTransaction by opts.DeleteUnmatchedModel.
+	// Detect models that exist locally with synced_from='ppio' but are not in
+	// the upstream this run. Only such rows are eligible for deletion, ensuring
+	// autodiscover/manual rows (synced_from='') survive missed-upstream events.
+	// Actual deletion is still gated by opts.DeleteUnmatchedModel.
 	for modelID, mc := range localModelMap {
-		if mc.Owner != model.ModelOwnerPPIO {
+		if mc.SyncedFrom != synccommon.SyncedFromPPIO {
 			continue
 		}
 
@@ -478,8 +482,11 @@ func Diagnostic(ctx context.Context) (*DiagnosticResult, error) {
 	// above queries all models to correctly detect cross-owner overlap).
 	var localCount int64
 
+	// Count rows that this sync claims via the synced_from tag. Owner alone
+	// is no longer authoritative for sync ownership (autodiscover/manual rows
+	// may also have owner=ppio but synced_from='').
 	err = model.DB.Model(&model.ModelConfig{}).
-		Where("owner = ?", string(model.ModelOwnerPPIO)).
+		Where("synced_from = ?", synccommon.SyncedFromPPIO).
 		Count(&localCount).
 		Error
 	if err != nil {

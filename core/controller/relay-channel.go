@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/common"
+	"github.com/labring/aiproxy/core/common/config"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/monitor"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/adaptors"
 	"github.com/labring/aiproxy/core/relay/mode"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -300,11 +304,20 @@ func getChannelWithFallback(
 ) (*model.Channel, []*model.Channel, error) {
 	// Fast path: single set (domestic nodes) — no ordering needed.
 	if len(availableSet) <= 1 {
-		return getChannelFromSingleSet(cache, availableSet, modelName, mode, errorRates, ignoreChannelIDs)
+		return getChannelFromSingleSet(
+			cache,
+			availableSet,
+			modelName,
+			mode,
+			errorRates,
+			ignoreChannelIDs,
+		)
 	}
 
 	// Multi-set path: try each set in priority order.
-	for _, set := range availableSet {
+	strict := config.GetStrictNodeSet()
+
+	for i, set := range availableSet {
 		singleSet := []string{set}
 
 		channel, migratedChannels, err := getRandomChannel(
@@ -321,7 +334,16 @@ func getChannelWithFallback(
 		}
 
 		// No channels registered for this model in this set — try next set.
+		// In strict mode, the FIRST set's NotFound is an unconditional hard
+		// fail too: the primary set is the only acceptable destination.
 		if errors.Is(err, ErrChannelsNotFound) {
+			if strict && i == 0 {
+				logShadowStrictWouldReject(modelName, set, "not_found")
+				return nil, nil, err
+			}
+
+			logShadowStrictWouldReject(modelName, set, "not_found_soft_fallback")
+
 			continue
 		}
 
@@ -344,7 +366,15 @@ func getChannelWithFallback(
 				return channel, migratedChannels, nil
 			}
 
-			// Still exhausted (all banned) — fall through to next set.
+			// Still exhausted (all banned). In strict mode, the primary set
+			// is final — hard fail rather than route to a different set.
+			if strict && i == 0 {
+				logShadowStrictWouldReject(modelName, set, "exhausted")
+				return nil, migratedChannels, err
+			}
+
+			logShadowStrictWouldReject(modelName, set, "exhausted_soft_fallback")
+
 			continue
 		}
 
@@ -666,4 +696,65 @@ func filterByErrorRate(
 	}
 
 	return result
+}
+
+// shadowStrictRejectLog rate-limits the strict-mode shadow log to prevent
+// disk fill-up under high QPS × high fallback rate. Each (model,set,reason)
+// tuple emits at most one entry per shadowStrictLogInterval. Operators read
+// these warnings during the shadow-observation window before flipping
+// STRICT_NODE_SET=true; emitting one summary line per minute per tuple is
+// enough to inform the rollout decision and won't blow up log storage.
+const shadowStrictLogInterval = time.Minute
+
+// shadowStrictMaxKeys caps the rate-limit map so an unbounded number of
+// distinct (model,set,reason) tuples can't leak memory over a long-running
+// process. When the cap is hit we drop the whole map: at worst this re-emits
+// every active tuple once, which is what the shadow log is for anyway.
+const shadowStrictMaxKeys = 4096
+
+type shadowStrictKey struct {
+	model, set, reason string
+}
+
+var (
+	shadowStrictMu       sync.Mutex
+	shadowStrictLastSeen = make(map[shadowStrictKey]time.Time)
+)
+
+// logShadowStrictWouldReject records a one-line WARN for routing decisions
+// affected by strict mode. Behavior depends on whether strict is enabled:
+//   - strict=false (shadow mode): emits "shadow_strict_would_reject" — used
+//     during the rollout-observation window to preview impact.
+//   - strict=true (enforcement): emits "strict_node_set_reject" — gives ops a
+//     greppable log line when strict mode actually 404s a request, so root
+//     cause is visible in production.
+//
+// Rate-limited to one entry per (model, set, reason) tuple per minute to
+// protect log storage under high QPS × high reject rate.
+func logShadowStrictWouldReject(modelName, set, reason string) {
+	key := shadowStrictKey{model: modelName, set: set, reason: reason}
+
+	shadowStrictMu.Lock()
+
+	if len(shadowStrictLastSeen) >= shadowStrictMaxKeys {
+		shadowStrictLastSeen = make(map[shadowStrictKey]time.Time)
+	}
+
+	last, ok := shadowStrictLastSeen[key]
+
+	now := time.Now()
+	if ok && now.Sub(last) < shadowStrictLogInterval {
+		shadowStrictMu.Unlock()
+		return
+	}
+
+	shadowStrictLastSeen[key] = now
+	shadowStrictMu.Unlock()
+
+	if config.GetStrictNodeSet() {
+		log.Warnf("strict_node_set_reject model=%s set=%s reason=%s", modelName, set, reason)
+		return
+	}
+
+	log.Warnf("shadow_strict_would_reject model=%s set=%s reason=%s", modelName, set, reason)
 }

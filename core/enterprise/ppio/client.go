@@ -138,6 +138,7 @@ func (c *PPIOClient) fetchMgmtModels(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"PPIO mgmt API returned status %d: %s",
 			resp.StatusCode,
@@ -214,6 +215,7 @@ func (c *PPIOClient) FetchAllModels(ctx context.Context, mgmtToken string) ([]PP
 					modelType,
 					extraErr,
 				)
+
 				return nil
 			}
 
@@ -355,6 +357,7 @@ func (c *PPIOClient) FetchMultimodalModels(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"multimodal API returned status %d: %s",
 			resp.StatusCode,
@@ -420,6 +423,7 @@ func (c *PPIOClient) FetchMultimodalPrices(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"batch-price API returned status %d: %s",
 			resp.StatusCode,

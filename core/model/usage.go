@@ -427,11 +427,11 @@ func (p *Price) GetThinkingModeOutputPriceUnit() int64 {
 type Usage struct {
 	// InputTokens: total input (prompt) tokens, INCLUDING CachedTokens and
 	// CacheCreationTokens. See struct doc for the cross-protocol invariant.
-	InputTokens         ZeroNullInt64 `json:"input_tokens,omitempty"`
-	ImageInputTokens    ZeroNullInt64 `json:"image_input_tokens,omitempty"`
-	AudioInputTokens    ZeroNullInt64 `json:"audio_input_tokens,omitempty"`
-	OutputTokens        ZeroNullInt64 `json:"output_tokens,omitempty"`
-	ImageOutputTokens   ZeroNullInt64 `json:"image_output_tokens,omitempty"`
+	InputTokens       ZeroNullInt64 `json:"input_tokens,omitempty"`
+	ImageInputTokens  ZeroNullInt64 `json:"image_input_tokens,omitempty"`
+	AudioInputTokens  ZeroNullInt64 `json:"audio_input_tokens,omitempty"`
+	OutputTokens      ZeroNullInt64 `json:"output_tokens,omitempty"`
+	ImageOutputTokens ZeroNullInt64 `json:"image_output_tokens,omitempty"`
 	// CachedTokens: subset of InputTokens that came from prompt cache reads.
 	CachedTokens ZeroNullInt64 `json:"cached_tokens,omitempty"`
 	// CacheCreationTokens: subset of InputTokens charged for cache writes.

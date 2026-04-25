@@ -7,10 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labring/aiproxy/core/common"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-
-	"github.com/labring/aiproxy/core/common"
 )
 
 // PPIOSyncHistory mirrors ppio.SyncHistory for migration purposes.
@@ -76,7 +75,51 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 	// Migrate V1 (single key) → V2 (view/manage split)
 	migratePermissionsV2(db)
 
+	// Tag legacy model_configs rows with synced_from based on Owner.
+	// One-shot bootstrap so the new sync ownership rules can manage them.
+	migrateModelConfigSyncedFrom(db)
+
 	return nil
+}
+
+// migrateModelConfigSyncedFrom assigns the synced_from tag to rows that
+// pre-date the field. Strategy: rows with owner='ppio' or owner='novita'
+// are claimed by their respective sync. Rows with any other owner (or empty)
+// remain synced_from=” — those are autodiscover/virtual/manual entries
+// that sync MUST NEVER touch (per the SyncedFrom design contract).
+//
+// Idempotent: only updates rows where synced_from is empty/NULL.
+func migrateModelConfigSyncedFrom(db *gorm.DB) {
+	// Owner / SyncedFrom values intentionally inlined as string literals: the
+	// natural sources (model.ModelOwner* and synccommon.SyncedFrom*) live in
+	// packages that already depend on this one, so importing them here would
+	// create a cycle. Keep these in sync with:
+	//   model.ModelOwnerPPIO   = "ppio"   / synccommon.SyncedFromPPIO   = "ppio"
+	//   model.ModelOwnerNovita = "novita" / synccommon.SyncedFromNovita = "novita"
+	updates := []struct {
+		owner, syncedFrom string
+	}{
+		{"ppio", "ppio"},
+		{"novita", "novita"},
+	}
+
+	for _, u := range updates {
+		res := db.Exec(
+			"UPDATE model_configs SET synced_from = ? "+
+				"WHERE owner = ? AND (synced_from IS NULL OR synced_from = '')",
+			u.syncedFrom, u.owner,
+		)
+		if res.Error != nil {
+			log.Errorf("failed to backfill model_configs.synced_from for owner=%s: %v",
+				u.owner, res.Error)
+			continue
+		}
+
+		if res.RowsAffected > 0 {
+			log.Infof("backfilled synced_from='%s' for %d model_configs rows",
+				u.syncedFrom, res.RowsAffected)
+		}
+	}
 }
 
 // seedDefaultRolePermissions inserts default permissions if the table is empty.
@@ -159,7 +202,11 @@ func migratePermissionsV2(db *gorm.DB) {
 		return
 	}
 
-	log.Infof("migrated %d old permission records to %d new records", len(oldPerms), len(newRecords))
+	log.Infof(
+		"migrated %d old permission records to %d new records",
+		len(oldPerms),
+		len(newRecords),
+	)
 }
 
 // migratePartialUniqueIndexes replaces full unique indexes with partial unique indexes
@@ -187,6 +234,7 @@ func migratePartialUniqueIndexes(db *gorm.DB) {
 			if err := tx.Exec("DROP INDEX IF EXISTS " + m.oldIndex).Error; err != nil {
 				return err
 			}
+
 			return tx.Exec(fmt.Sprintf(
 				"CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s) WHERE deleted_at IS NULL",
 				m.oldIndex, m.table, m.column,
@@ -196,14 +244,20 @@ func migratePartialUniqueIndexes(db *gorm.DB) {
 			continue
 		}
 
-		log.Infof("migrated index %s on %s to partial unique (WHERE deleted_at IS NULL)", m.oldIndex, m.table)
+		log.Infof(
+			"migrated index %s on %s to partial unique (WHERE deleted_at IS NULL)",
+			m.oldIndex,
+			m.table,
+		)
 	}
 }
 
 // isPartialUniqueIndex checks if an index already has a WHERE clause (partial index).
 func isPartialUniqueIndex(db *gorm.DB, table, indexName string) bool {
-	var indexDef string
-	var query string
+	var (
+		indexDef string
+		query    string
+	)
 
 	if common.UsingSQLite {
 		query = "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ?"

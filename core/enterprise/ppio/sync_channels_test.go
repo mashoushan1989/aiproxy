@@ -30,8 +30,8 @@ func setupPPIOChannelTestDB(t *testing.T) {
 		common.UsingSQLite = prevUsingSQLite
 	})
 
-	if err := testDB.AutoMigrate(&model.Channel{}); err != nil {
-		t.Fatalf("failed to migrate channel table: %v", err)
+	if err := testDB.AutoMigrate(&model.Channel{}, &model.ModelConfig{}); err != nil {
+		t.Fatalf("failed to migrate tables: %v", err)
 	}
 }
 
@@ -149,8 +149,10 @@ func TestEnsurePPIOChannelsFromModels_UpdatesChannelConfigs(t *testing.T) {
 			}
 
 			if _, hasDisable := ch.Configs["disable_context_management"]; hasDisable {
-				t.Fatalf("sync should no longer default disable_context_management (PPIO now supports it): %#v",
-					ch.Configs["disable_context_management"])
+				t.Fatalf(
+					"sync should no longer default disable_context_management (PPIO now supports it): %#v",
+					ch.Configs["disable_context_management"],
+				)
 			}
 		}
 	}
@@ -285,8 +287,9 @@ func modelsByType(t *testing.T) map[model.ChannelType][]string {
 }
 
 // Regression: multimodal API fetch failure must not wipe the multimodal channel.
-// skipMultimodalUpdate=true should preserve existing Models while chat channels
-// still get their fresh lists.
+// skipMultimodalUpdate=true leaves the multimodal channel untouched. Chat
+// channels are merged with new upstream — stale entries with no synced_from
+// ownership ("unknown unowned") are preserved by design (defensive merge).
 func TestEnsurePPIOChannelsFromModels_SkipMultimodalPreservesChannel(t *testing.T) {
 	setupPPIOChannelTestDB(t)
 	seedPPIOChannelsWithModels(t)
@@ -306,8 +309,10 @@ func TestEnsurePPIOChannelsFromModels_SkipMultimodalPreservesChannel(t *testing.
 
 	got := modelsByType(t)
 
+	// "stale-claude" has no model_config row → merge preserves it as unowned.
 	if want := []string{
 		"claude-sonnet-4-20250514",
+		"stale-claude",
 	}; !slices.Equal(
 		got[model.ChannelTypeAnthropic],
 		want,
@@ -315,11 +320,17 @@ func TestEnsurePPIOChannelsFromModels_SkipMultimodalPreservesChannel(t *testing.
 		t.Errorf("anthropic Models = %v, want %v", got[model.ChannelTypeAnthropic], want)
 	}
 
-	if want := []string{"deepseek-v3"}; !slices.Equal(got[model.ChannelTypePPIO], want) {
+	if want := []string{
+		"deepseek-v3",
+		"stale-openai",
+	}; !slices.Equal(
+		got[model.ChannelTypePPIO],
+		want,
+	) {
 		t.Errorf("openai Models = %v, want %v", got[model.ChannelTypePPIO], want)
 	}
 
-	// Critical: multimodal must be preserved, not wiped.
+	// Critical: multimodal must be preserved, not wiped (skip flag bypass).
 	if want := []string{
 		"stale-seedream",
 	}; !slices.Equal(
@@ -363,8 +374,10 @@ func TestEnsurePPIOChannelsFromModels_SkipChatPreservesChannels(t *testing.T) {
 		t.Errorf("openai Models = %v, want preserved %v", got[model.ChannelTypePPIO], want)
 	}
 
+	// Multimodal sync runs; merge with stale (unowned) preserves it.
 	if want := []string{
 		"seedream-5.0-lite",
+		"stale-seedream",
 	}; !slices.Equal(
 		got[model.ChannelTypePPIOMultimodal],
 		want,
@@ -407,7 +420,8 @@ func TestEnsurePPIOChannels_InjectsVirtualWebSearchModels(t *testing.T) {
 		t.Fatalf("expected adaptor to declare at least one virtual WebSearch model")
 	}
 
-	want := append([]string{"deepseek-v3"}, virtual...)
+	// stale-openai (unowned, no model_config row) is preserved by merge.
+	want := append([]string{"deepseek-v3", "stale-openai"}, virtual...)
 	slices.Sort(want)
 
 	if !slices.Equal(got[model.ChannelTypePPIO], want) {

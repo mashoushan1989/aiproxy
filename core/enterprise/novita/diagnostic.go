@@ -122,9 +122,9 @@ func CompareNovitaModelsV2(
 				NewConfig: buildModelConfigMapV2(&remoteModel, exchangeRate),
 			})
 			diff.Summary.ToAdd++
-		} else if localModel.Owner != model.ModelOwnerNovita {
-			// Model exists but owned by another provider (e.g. PPIO).
-			// Track in Shared so it appears in channels and on the UI.
+		} else if localModel.SyncedFrom != synccommon.SyncedFromNovita {
+			// Owned by another sync, or non-sync (autodiscover/manual). Track
+			// in Shared so the UI shows it but sync will not modify it.
 			diff.Summary.CrossOwner++
 			diff.Changes.Shared = append(diff.Changes.Shared, ModelDiff{
 				ModelID:   remoteModel.ID,
@@ -146,12 +146,11 @@ func CompareNovitaModelsV2(
 		}
 	}
 
-	// Always detect models that exist locally but not remotely (owned by Novita).
-	// This populates diff for informational display regardless of whether the user
-	// has opted in to deletion. Actual deletion is gated separately in
-	// executeSyncTransaction by opts.DeleteUnmatchedModel.
+	// Detect models that exist locally with synced_from='novita' but are not in
+	// upstream this run. Only these rows are eligible for deletion, ensuring
+	// autodiscover/manual rows (synced_from='') survive.
 	for modelID, mc := range localModelMap {
-		if mc.Owner != model.ModelOwnerNovita {
+		if mc.SyncedFrom != synccommon.SyncedFromNovita {
 			continue
 		}
 
@@ -350,8 +349,10 @@ func Diagnostic(ctx context.Context) (*DiagnosticResult, error) {
 	// above queries all models to correctly detect cross-owner overlap).
 	var localCount int64
 
+	// Count rows this sync claims via synced_from. Owner is no longer authoritative
+	// (autodiscover/manual rows may also have owner=novita with synced_from='').
 	err = model.DB.Model(&model.ModelConfig{}).
-		Where("owner = ?", string(model.ModelOwnerNovita)).
+		Where("synced_from = ?", synccommon.SyncedFromNovita).
 		Count(&localCount).
 		Error
 	if err != nil {

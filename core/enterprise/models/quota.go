@@ -118,8 +118,10 @@ func (p *QuotaPolicy) IsModelBlockedAtTier(tier int, model string) bool {
 // IsModelBlockedByPrice checks whether a model should be blocked at the given
 // tier based on its input/output price (¥/M tokens, normalized by caller).
 func (p *QuotaPolicy) IsModelBlockedByPrice(tier int, inputPrice, outputPrice float64) bool {
-	var inThresh, outThresh float64
-	var cond string
+	var (
+		inThresh, outThresh float64
+		cond                string
+	)
 
 	switch tier {
 	case 2:
@@ -148,6 +150,7 @@ func (p *QuotaPolicy) IsModelBlockedByPrice(tier int, inputPrice, outputPrice fl
 	if !inActive {
 		return outMatch
 	}
+
 	if !outActive {
 		return inMatch
 	}
@@ -156,18 +159,19 @@ func (p *QuotaPolicy) IsModelBlockedByPrice(tier int, inputPrice, outputPrice fl
 	if cond == "and" {
 		return inMatch && outMatch
 	}
+
 	return inMatch || outMatch // default "or"
 }
 
 // GroupQuotaPolicy binds a QuotaPolicy to a Group.
 type GroupQuotaPolicy struct {
-	ID            int            `json:"id"             gorm:"primaryKey"`
+	ID            int            `json:"id"              gorm:"primaryKey"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-"              gorm:"index"`
-	GroupID       string         `json:"group_id"       gorm:"size:64;uniqueIndex;not null"`
+	DeletedAt     gorm.DeletedAt `json:"-"               gorm:"index"`
+	GroupID       string         `json:"group_id"        gorm:"size:64;uniqueIndex;not null"`
 	QuotaPolicyID int            `json:"quota_policy_id" gorm:"index;not null"`
-	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"   gorm:"foreignKey:QuotaPolicyID"`
+	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"    gorm:"foreignKey:QuotaPolicyID"`
 }
 
 func (GroupQuotaPolicy) TableName() string {
@@ -176,13 +180,13 @@ func (GroupQuotaPolicy) TableName() string {
 
 // DepartmentQuotaPolicy binds a QuotaPolicy to a department (all users in dept inherit it).
 type DepartmentQuotaPolicy struct {
-	ID            int            `json:"id"             gorm:"primaryKey"`
+	ID            int            `json:"id"              gorm:"primaryKey"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-"              gorm:"index"`
-	DepartmentID  string         `json:"department_id"  gorm:"size:64;uniqueIndex;not null"`
+	DeletedAt     gorm.DeletedAt `json:"-"               gorm:"index"`
+	DepartmentID  string         `json:"department_id"   gorm:"size:64;uniqueIndex;not null"`
 	QuotaPolicyID int            `json:"quota_policy_id" gorm:"index;not null"`
-	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"   gorm:"foreignKey:QuotaPolicyID"`
+	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"    gorm:"foreignKey:QuotaPolicyID"`
 }
 
 func (DepartmentQuotaPolicy) TableName() string {
@@ -191,13 +195,13 @@ func (DepartmentQuotaPolicy) TableName() string {
 
 // UserQuotaPolicy binds a QuotaPolicy to a specific user (overrides department policy).
 type UserQuotaPolicy struct {
-	ID            int            `json:"id"             gorm:"primaryKey"`
+	ID            int            `json:"id"              gorm:"primaryKey"`
 	CreatedAt     time.Time      `json:"created_at"`
 	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-"              gorm:"index"`
-	OpenID        string         `json:"open_id"        gorm:"size:64;uniqueIndex;not null"`
+	DeletedAt     gorm.DeletedAt `json:"-"               gorm:"index"`
+	OpenID        string         `json:"open_id"         gorm:"size:64;uniqueIndex;not null"`
 	QuotaPolicyID int            `json:"quota_policy_id" gorm:"index;not null"`
-	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"   gorm:"foreignKey:QuotaPolicyID"`
+	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"    gorm:"foreignKey:QuotaPolicyID"`
 }
 
 func (UserQuotaPolicy) TableName() string {
@@ -206,17 +210,17 @@ func (UserQuotaPolicy) TableName() string {
 
 // QuotaAlertHistory records each quota tier notification sent to a user.
 type QuotaAlertHistory struct {
-	ID          int64     `json:"id"           gorm:"primaryKey"`
-	CreatedAt   time.Time `json:"created_at"   gorm:"autoCreateTime;index"`
-	OpenID      string    `json:"open_id"      gorm:"size:64;index;not null"`
-	UserName    string    `json:"user_name"    gorm:"size:128"`
-	Tier        int       `json:"tier"         gorm:"not null"`           // 2, 3, or 4 (exhausted)
-	UsageRatio  float64   `json:"usage_ratio"  gorm:"not null"`           // 0.0-1.0+
-	PeriodQuota float64   `json:"period_quota" gorm:"not null"`           // currency amount
-	PeriodType  string    `json:"period_type"  gorm:"size:16;not null"`   // daily, weekly, monthly
-	Title       string    `json:"title"        gorm:"size:256"`
-	Body        string    `json:"body"         gorm:"size:1024"`
-	Status      string    `json:"status"       gorm:"size:16;not null"`   // sent, failed
+	ID          int64     `json:"id"              gorm:"primaryKey"`
+	CreatedAt   time.Time `json:"created_at"      gorm:"autoCreateTime;index"`
+	OpenID      string    `json:"open_id"         gorm:"size:64;index;not null"`
+	UserName    string    `json:"user_name"       gorm:"size:128"`
+	Tier        int       `json:"tier"            gorm:"not null"`         // 2, 3, or 4 (exhausted)
+	UsageRatio  float64   `json:"usage_ratio"     gorm:"not null"`         // 0.0-1.0+
+	PeriodQuota float64   `json:"period_quota"    gorm:"not null"`         // currency amount
+	PeriodType  string    `json:"period_type"     gorm:"size:16;not null"` // daily, weekly, monthly
+	Title       string    `json:"title"           gorm:"size:256"`
+	Body        string    `json:"body"            gorm:"size:1024"`
+	Status      string    `json:"status"          gorm:"size:16;not null"` // sent, failed
 	Error       string    `json:"error,omitempty" gorm:"size:512"`
 }
 

@@ -51,15 +51,19 @@ func GetHealth(c *gin.Context) {
 			Success: false,
 			Message: "db connection unavailable",
 		})
+
 		return
 	}
+
 	if err := sqlDB.Ping(); err != nil {
 		c.JSON(http.StatusServiceUnavailable, middleware.APIResponse{
 			Success: false,
 			Message: "db ping failed",
 		})
+
 		return
 	}
+
 	middleware.SuccessResponse(c, &StatusData{
 		StartTime:    common.StartTime,
 		IsEnterprise: IsEnterprise,

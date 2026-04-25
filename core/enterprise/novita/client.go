@@ -152,6 +152,7 @@ func (c *NovitaClient) fetchMgmtModels(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"Novita mgmt API returned status %d: %s",
 			resp.StatusCode,
@@ -219,6 +220,7 @@ func (c *NovitaClient) FetchAllModels(
 					modelType,
 					extraErr,
 				)
+
 				return nil
 			}
 
@@ -347,6 +349,7 @@ func (c *NovitaClient) FetchMultimodalModels(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"multimodal API returned status %d: %s",
 			resp.StatusCode,
@@ -412,6 +415,7 @@ func (c *NovitaClient) FetchMultimodalPrices(
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
 		return nil, fmt.Errorf(
 			"batch-price API returned status %d: %s",
 			resp.StatusCode,

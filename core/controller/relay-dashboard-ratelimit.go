@@ -14,7 +14,11 @@ func DashboardRateLimit(c *gin.Context) {
 	token := middleware.GetToken(c)
 
 	if !dashboardLimiter.Allow(token.ID) {
-		middleware.ErrorResponse(c, http.StatusTooManyRequests, "rate limit exceeded for dashboard queries")
+		middleware.ErrorResponse(
+			c,
+			http.StatusTooManyRequests,
+			"rate limit exceeded for dashboard queries",
+		)
 		c.Abort()
 
 		return

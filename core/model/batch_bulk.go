@@ -109,12 +109,14 @@ func init() {
 	// matching allSummaryFields. This catches any field additions that are not
 	// reflected in the value extraction functions.
 	expected := len(allSummaryFields)
+
 	got := fieldsPerDataSet * 4 // base + 3 prefixed sets
 	if expected != got {
 		panic(fmt.Sprintf(
 			"batch_bulk: allSummaryFields has %d fields but summaryDataFieldValues produces %d values; "+
 				"update value extraction functions when adding new summary fields",
-			expected, got,
+			expected,
+			got,
 		))
 	}
 
@@ -178,10 +180,8 @@ func BulkUpsertSummaries(
 
 	// Process in chunks to stay under PostgreSQL parameter limit
 	for start := 0; start < rowCount; start += maxBulkSummaryRows {
-		end := start + maxBulkSummaryRows
-		if end > rowCount {
-			end = rowCount
-		}
+		end := min(start+maxBulkSummaryRows, rowCount)
+
 		if err := bulkUpsertSummaryChunk(
 			db, tableName, uniqueCols, uniquePgTypes,
 			uniqueValsFn, dataEntries, start, end, onConflict,
@@ -189,6 +189,7 @@ func BulkUpsertSummaries(
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -251,6 +252,7 @@ func bulkUpsertSummaryChunk(
 	if result.Error != nil {
 		log.Error("bulk upsert " + tableName + " failed: " + result.Error.Error())
 	}
+
 	return result.Error
 }
 
@@ -261,10 +263,10 @@ func bulkUpsertSummaryChunk(
 func verifySummaryFieldOrdering() {
 	d := SummaryData{}
 	// base: 1, 2, 3.0, 4
-	d.SummaryDataSet.RequestCount = 1
-	d.SummaryDataSet.InputTokens = 2
-	d.SummaryDataSet.InputAmount = 3.0
-	d.SummaryDataSet.TotalTimeMilliseconds = 4
+	d.RequestCount = 1
+	d.InputTokens = 2
+	d.InputAmount = 3.0
+	d.TotalTimeMilliseconds = 4
 	// flex: 10, 20, 30.0, 40
 	d.ServiceTierFlex.RequestCount = 10
 	d.ServiceTierFlex.InputTokens = 20
@@ -294,6 +296,7 @@ func verifySummaryFieldOrdering() {
 		field    string
 		expected any
 	}
+
 	checks := []check{
 		{"request_count", int64(1)},
 		{"input_tokens", int64(2)},
@@ -321,6 +324,7 @@ func verifySummaryFieldOrdering() {
 				c.field,
 			))
 		}
+
 		if values[idx] != c.expected {
 			panic(fmt.Sprintf(
 				"batch_bulk: ordering mismatch at position %d: column %q expected %v but got %v; "+

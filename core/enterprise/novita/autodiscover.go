@@ -4,13 +4,13 @@ package novita
 
 import (
 	"context"
-	"log"
 	"slices"
 
 	"github.com/labring/aiproxy/core/controller"
 	"github.com/labring/aiproxy/core/enterprise/synccommon"
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/mode"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -143,8 +143,10 @@ func doDiscoverMultimodal(ctx context.Context, modelName string) {
 	}
 
 	// Register with per-request pricing (or zero if no pricing found).
+	// SyncedFrom intentionally empty — autodiscover writes "non-sync" rows
+	// that the regular sync MUST NOT touch.
 	// Default to PPIONative for genuinely unknown multimodal models;
-	// the next daily sync will correct the type if V2 data becomes available.
+	// the next daily sync will not correct the type since SyncedFrom is empty.
 	mc := model.ModelConfig{
 		Model: modelName,
 		Owner: model.ModelOwnerNovita,
@@ -157,7 +159,7 @@ func doDiscoverMultimodal(ctx context.Context, modelName string) {
 		mc.Price.PerRequestPrice = model.ZeroNullFloat64(perRequestPrice)
 	}
 
-	if err := model.DB.Save(&mc).Error; err != nil {
+	if err := model.OnConflictDoNothing().Create(&mc).Error; err != nil {
 		log.Printf("novita autodiscover: failed to register %s: %v", modelName, err)
 		return
 	}
@@ -231,6 +233,7 @@ func discoverMultimodalPrice(
 				"novita autodiscover: FetchMultimodalPrices failed (non-fatal): %v",
 				priceErr,
 			)
+
 			return 0
 		}
 
@@ -242,6 +245,9 @@ func discoverMultimodalPrice(
 
 // registerNovitaChatModel creates a ModelConfig entry for a Novita chat model
 // using V2 management API data.
+//
+// SyncedFrom intentionally empty — autodiscover-registered rows are not
+// managed by the regular sync (per CanSyncOwn).
 func registerNovitaChatModel(
 	modelName string,
 	remoteModel *NovitaModelV2,
@@ -266,11 +272,14 @@ func registerNovitaChatModel(
 
 	setPriceFromV2Model(&mc.Price, remoteModel, exchangeRate)
 
-	return model.DB.Save(&mc).Error
+	return model.OnConflictDoNothing().Create(&mc).Error
 }
 
 // registerFallbackModel creates a zero-cost ModelConfig entry when no pricing
-// data is available. The model will be properly priced on the next daily sync.
+// data is available.
+//
+// SyncedFrom intentionally empty — autodiscover/fallback rows are not managed
+// by the regular sync. Admin must manually update pricing.
 func registerFallbackModel(modelName string) {
 	mc := model.ModelConfig{
 		Model: modelName,
@@ -280,7 +289,7 @@ func registerFallbackModel(modelName string) {
 		TPM:   1000000,
 	}
 
-	if err := model.DB.Save(&mc).Error; err != nil {
+	if err := model.OnConflictDoNothing().Create(&mc).Error; err != nil {
 		log.Printf("novita autodiscover: failed to register fallback %s: %v", modelName, err)
 		return
 	}
@@ -299,6 +308,9 @@ func registerFallbackModel(modelName string) {
 }
 
 // registerMultimodalFallback creates a zero-cost multimodal ModelConfig entry.
+//
+// SyncedFrom intentionally empty — autodiscover/fallback rows are not managed
+// by the regular sync.
 func registerMultimodalFallback(modelName string) {
 	mc := model.ModelConfig{
 		Model: modelName,
@@ -308,12 +320,13 @@ func registerMultimodalFallback(modelName string) {
 		TPM:   1000000,
 	}
 
-	if err := model.DB.Save(&mc).Error; err != nil {
+	if err := model.OnConflictDoNothing().Create(&mc).Error; err != nil {
 		log.Printf(
 			"novita autodiscover: failed to register multimodal fallback %s: %v",
 			modelName,
 			err,
 		)
+
 		return
 	}
 

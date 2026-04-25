@@ -565,7 +565,9 @@ func setAllGroupTokenStatus(groupID string, fromStatus, toStatus int) (int64, er
 
 	for _, t := range tokens {
 		if err := CacheUpdateTokenStatus(t.Key, toStatus); err != nil {
-			log.Error("set all group token status: cache update failed for key " + t.Key + ": " + err.Error())
+			log.Error(
+				"set all group token status: cache update failed for key " + t.Key + ": " + err.Error(),
+			)
 		}
 	}
 
@@ -1000,6 +1002,7 @@ func BulkUpdateTokenUsedAmount(updates map[int]*TokenUpdate) error {
 		chunk := all[start:end]
 
 		args := make([]any, 0, len(chunk)*3)
+
 		valueClauses := make([]string, 0, len(chunk))
 		for i, e := range chunk {
 			base := i * 3
@@ -1033,17 +1036,24 @@ func bulkUpdateTokenScanRows(sql string, args []any, updates map[int]*TokenUpdat
 	defer rows.Close()
 
 	for rows.Next() {
-		var tokenID int
-		var key string
-		var quota, usedAmount, periodQuota float64
+		var (
+			tokenID                        int
+			key                            string
+			quota, usedAmount, periodQuota float64
+		)
+
 		if err := rows.Scan(&tokenID, &key, &quota, &usedAmount, &periodQuota); err != nil {
 			log.Error("bulk update token scan failed: " + err.Error())
 			continue
 		}
+
 		if data, ok := updates[tokenID]; ok &&
 			data.Amount.IsPositive() &&
 			(quota > 0 || periodQuota > 0) {
-			if cacheErr := CacheUpdateTokenUsedAmountOnlyIncrease(key, usedAmount); cacheErr != nil {
+			if cacheErr := CacheUpdateTokenUsedAmountOnlyIncrease(
+				key,
+				usedAmount,
+			); cacheErr != nil {
 				log.Error("bulk update token cache failed: " + cacheErr.Error())
 			}
 		}

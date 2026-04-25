@@ -56,9 +56,24 @@ func TestIsModelAllowedByToken(t *testing.T) {
 		want   bool
 	}{
 		{name: "empty whitelist allows all", models: nil, model: "gpt-4o", want: true},
-		{name: "model in whitelist", models: redisStringSlice{"gpt-4o"}, model: "gpt-4o", want: true},
-		{name: "case-insensitive match", models: redisStringSlice{"GPT-4O"}, model: "gpt-4o", want: true},
-		{name: "model not in whitelist", models: redisStringSlice{"gpt-4o"}, model: "gpt-5", want: false},
+		{
+			name:   "model in whitelist",
+			models: redisStringSlice{"gpt-4o"},
+			model:  "gpt-4o",
+			want:   true,
+		},
+		{
+			name:   "case-insensitive match",
+			models: redisStringSlice{"GPT-4O"},
+			model:  "gpt-4o",
+			want:   true,
+		},
+		{
+			name:   "model not in whitelist",
+			models: redisStringSlice{"gpt-4o"},
+			model:  "gpt-5",
+			want:   false,
+		},
 	}
 
 	for _, tc := range cases {

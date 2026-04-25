@@ -45,11 +45,13 @@ func TestDBAutoReconnect(t *testing.T) {
 	if err := verifyDBWorks(db, sqlDB); err != nil {
 		t.Fatalf("Phase 1 (initial check): %v", err)
 	}
+
 	t.Log("Phase 1: Initial DB connection OK")
 
 	// Phase 2: Simulate DB outage by terminating all connections server-side.
 	// This is what happens when WireGuard tunnel drops — TCP connections die silently.
 	t.Log("Phase 2: Simulating DB outage (terminating backend connections)...")
+
 	if err := terminateBackendConnections(db); err != nil {
 		t.Logf("  Warning: could not terminate backends (need superuser): %v", err)
 		t.Log("  Falling back to connection pool stat check only")
@@ -58,12 +60,14 @@ func TestDBAutoReconnect(t *testing.T) {
 	// Phase 3: Verify connections are actually broken
 	// After backend termination, existing pooled connections should fail
 	t.Log("Phase 3: Verifying connections are broken...")
+
 	brokenCount := 0
 	for range 5 {
 		if err := sqlDB.Ping(); err != nil {
 			brokenCount++
 		}
 	}
+
 	t.Logf("  %d/5 ping attempts failed (expected: some failures)", brokenCount)
 
 	// Phase 4: Wait for ConnMaxLifetime and verify auto-recovery
@@ -74,8 +78,10 @@ func TestDBAutoReconnect(t *testing.T) {
 	recovered := false
 	for i := range 15 {
 		time.Sleep(5 * time.Second)
+
 		if err := verifyDBWorks(db, sqlDB); err == nil {
 			t.Logf("  Auto-recovered after %ds", (i+1)*5)
+
 			recovered = true
 			break
 		} else {
@@ -89,13 +95,16 @@ func TestDBAutoReconnect(t *testing.T) {
 
 	// Phase 5: Verify GORM operations work (not just raw Ping)
 	t.Log("Phase 5: Verifying GORM query works after recovery...")
+
 	var result int
 	if err := db.Raw("SELECT 1").Scan(&result).Error; err != nil {
 		t.Fatalf("GORM query failed after recovery: %v", err)
 	}
+
 	if result != 1 {
 		t.Fatalf("unexpected result: got %d, want 1", result)
 	}
+
 	t.Log("Phase 5: GORM query OK — auto-reconnect verified")
 
 	// Summary
@@ -108,10 +117,12 @@ func verifyDBWorks(db *gorm.DB, sqlDB *sql.DB) error {
 	if err := sqlDB.Ping(); err != nil {
 		return fmt.Errorf("ping failed: %w", err)
 	}
+
 	var n int
 	if err := db.Raw("SELECT 1").Scan(&n).Error; err != nil {
 		return fmt.Errorf("query failed: %w", err)
 	}
+
 	return nil
 }
 

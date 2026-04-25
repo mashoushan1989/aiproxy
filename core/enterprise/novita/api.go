@@ -137,6 +137,7 @@ func UpdateAPIKeyHandler(c *gin.Context) {
 			http.StatusInternalServerError,
 			fmt.Sprintf("failed to save API key: %v", err),
 		)
+
 		return
 	}
 
@@ -160,6 +161,7 @@ func UpdateConfigHandler(c *gin.Context) {
 			http.StatusInternalServerError,
 			fmt.Sprintf("failed to save config: %v", err),
 		)
+
 		return
 	}
 
@@ -183,6 +185,7 @@ func UpdateMgmtTokenHandler(c *gin.Context) {
 			http.StatusInternalServerError,
 			fmt.Sprintf("failed to save mgmt token: %v", err),
 		)
+
 		return
 	}
 
@@ -206,6 +209,7 @@ func UpdateExchangeRateHandler(c *gin.Context) {
 			http.StatusInternalServerError,
 			fmt.Sprintf("failed to save exchange rate: %v", err),
 		)
+
 		return
 	}
 
@@ -437,6 +441,7 @@ func UpdateAutoSyncHandler(c *gin.Context) {
 			http.StatusInternalServerError,
 			fmt.Sprintf("failed to save auto-sync setting: %v", err),
 		)
+
 		return
 	}
 

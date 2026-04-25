@@ -26,16 +26,27 @@ type TimeoutConfig struct {
 }
 
 type ModelConfig struct {
-	CreatedAt        time.Time                 `gorm:"index;autoCreateTime"          json:"created_at"                   yaml:"-"`
-	UpdatedAt        time.Time                 `gorm:"index;autoUpdateTime"          json:"updated_at"                   yaml:"-"`
-	Config           map[ModelConfigKey]any    `gorm:"serializer:fastjson;type:text" json:"config,omitempty"             yaml:"config,omitempty"`
-	Plugin           map[string]map[string]any `gorm:"serializer:fastjson;type:text" json:"plugin,omitempty"             yaml:"plugin,omitempty"`
-	Model            string                    `gorm:"size:64;primaryKey"            json:"model"                        yaml:"model,omitempty"`
-	Owner            ModelOwner                `gorm:"type:varchar(32);index"        json:"owner"                        yaml:"owner,omitempty"`
-	Type             mode.Mode                 `                                     json:"type"                         yaml:"type,omitempty"`
-	ExcludeFromTests bool                      `                                     json:"exclude_from_tests,omitempty" yaml:"exclude_from_tests,omitempty"`
-	RPM              int64                     `                                     json:"rpm,omitempty"                yaml:"rpm,omitempty"`
-	TPM              int64                     `                                     json:"tpm,omitempty"                yaml:"tpm,omitempty"`
+	CreatedAt time.Time                 `gorm:"index;autoCreateTime"          json:"created_at"       yaml:"-"`
+	UpdatedAt time.Time                 `gorm:"index;autoUpdateTime"          json:"updated_at"       yaml:"-"`
+	Config    map[ModelConfigKey]any    `gorm:"serializer:fastjson;type:text" json:"config,omitempty" yaml:"config,omitempty"`
+	Plugin    map[string]map[string]any `gorm:"serializer:fastjson;type:text" json:"plugin,omitempty" yaml:"plugin,omitempty"`
+	Model     string                    `gorm:"size:64;primaryKey"            json:"model"            yaml:"model,omitempty"`
+	Owner     ModelOwner                `gorm:"type:varchar(32);index"        json:"owner"            yaml:"owner,omitempty"`
+	// SyncedFrom marks which sync process owns this row's lifecycle.
+	// Non-empty: this row is managed by the named sync (e.g. "ppio", "novita").
+	//   The owning sync may delete/age it.
+	// Empty: not from sync — autodiscover, virtual model, manual admin, or yaml overlay.
+	//   Sync code MUST NOT touch rows where SyncedFrom is empty.
+	SyncedFrom string `gorm:"type:varchar(32);index" json:"synced_from,omitempty" yaml:"-"`
+	// MissingCount tracks how many consecutive sync runs have failed to see this model
+	// in the upstream listing. Only incremented for rows the running sync owns
+	// (SyncedFrom == thisSync). Used to drop transiently-missing models from
+	// channel.Models after a configurable threshold (see SyncMissingThreshold).
+	MissingCount     int       `json:"missing_count,omitempty"      yaml:"-"`
+	Type             mode.Mode `json:"type"                         yaml:"type,omitempty"`
+	ExcludeFromTests bool      `json:"exclude_from_tests,omitempty" yaml:"exclude_from_tests,omitempty"`
+	RPM              int64     `json:"rpm,omitempty"                yaml:"rpm,omitempty"`
+	TPM              int64     `json:"tpm,omitempty"                yaml:"tpm,omitempty"`
 	// map[size]map[quality]price_per_image
 	ImageQualityPrices map[string]map[string]float64 `gorm:"serializer:fastjson;type:text" json:"image_quality_prices,omitempty" yaml:"image_quality_prices,omitempty"`
 	// map[size]price_per_image

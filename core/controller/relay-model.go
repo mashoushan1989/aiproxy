@@ -70,7 +70,10 @@ func ListModels(c *gin.Context) {
 	token.Range(func(modelName string) bool {
 		if mc, ok := enabledModelConfigsMap[modelName]; ok {
 			adjusted := middleware.GetGroupAdjustedModelConfig(group, mc)
-			availableOpenAIModels = append(availableOpenAIModels, buildOpenAIModel(modelName, adjusted))
+			availableOpenAIModels = append(
+				availableOpenAIModels,
+				buildOpenAIModel(modelName, adjusted),
+			)
 		}
 
 		return true

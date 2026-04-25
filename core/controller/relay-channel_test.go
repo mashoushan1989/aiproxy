@@ -206,15 +206,32 @@ func buildTestModelCaches(channelsBySet map[string]map[string][]*model.Channel) 
 // With multiple sets, the first set is preferred. Even though both sets have
 // channels for the model, only the first set's channel should be returned.
 func TestGetChannelWithFallback_PrefersFirstSet(t *testing.T) {
-	overseasCh := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh}},
 		"default":  {"gpt-4o": {ppioCh}},
 	})
 
-	ch, migrated, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	ch, migrated, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -231,14 +248,26 @@ func TestGetChannelWithFallback_PrefersFirstSet(t *testing.T) {
 
 // When the first set has no channels for the model, fall back to the second set.
 func TestGetChannelWithFallback_FallsBackWhenFirstSetEmpty(t *testing.T) {
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {}, // overseas has no channels for this model
 		"default":  {"gpt-4o": {ppioCh}},
 	})
 
-	ch, _, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,8 +279,18 @@ func TestGetChannelWithFallback_FallsBackWhenFirstSetEmpty(t *testing.T) {
 
 // When all channels in the first set are banned, fall back to the second set.
 func TestGetChannelWithFallback_FallsBackWhenFirstSetAllBanned(t *testing.T) {
-	overseasCh := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh}},
@@ -261,7 +300,14 @@ func TestGetChannelWithFallback_FallsBackWhenFirstSetAllBanned(t *testing.T) {
 	// Ban the overseas channel
 	banned := map[int64]struct{}{1: {}}
 
-	ch, _, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, nil, banned)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		banned,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -273,13 +319,25 @@ func TestGetChannelWithFallback_FallsBackWhenFirstSetAllBanned(t *testing.T) {
 
 // Single set behaves the same as before (fast path).
 func TestGetChannelWithFallback_SingleSetUnchanged(t *testing.T) {
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"default": {"gpt-4o": {ppioCh}},
 	})
 
-	ch, _, err := getChannelWithFallback(mc, []string{"default"}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -296,7 +354,14 @@ func TestGetChannelWithFallback_NoChannelsInAnySets(t *testing.T) {
 		"default":  {},
 	})
 
-	_, _, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	_, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -306,8 +371,18 @@ func TestGetChannelWithFallback_NoChannelsInAnySets(t *testing.T) {
 // set (maxErrorRate=0) should still pick an overseas channel — NOT fall back
 // to default. Fallback only happens when channels are completely unavailable.
 func TestGetChannelWithFallback_HighErrorRateStaysInSameSet(t *testing.T) {
-	overseasCh := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh}},
@@ -317,7 +392,14 @@ func TestGetChannelWithFallback_HighErrorRateStaysInSameSet(t *testing.T) {
 	// Overseas channel has very high error rate, but is NOT banned.
 	errorRates := map[int64]float64{1: 0.95}
 
-	ch, migrated, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, errorRates, nil)
+	ch, migrated, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		errorRates,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -338,16 +420,38 @@ func TestGetChannelWithFallback_HighErrorRateStaysInSameSet(t *testing.T) {
 // to pick alternative channels — if it leaked default-set channels, retries
 // could bypass the overseas preference.
 func TestGetChannelWithFallback_MigratedChannelsScopedToSelectedSet(t *testing.T) {
-	overseasCh1 := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	overseasCh2 := &model.Channel{ID: 3, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh1 := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	overseasCh2 := &model.Channel{
+		ID:       3,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh1, overseasCh2}},
 		"default":  {"gpt-4o": {ppioCh}},
 	})
 
-	_, migrated, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	_, migrated, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -359,14 +463,21 @@ func TestGetChannelWithFallback_MigratedChannelsScopedToSelectedSet(t *testing.T
 
 	for _, ch := range migrated {
 		if ch.ID == 2 {
-			t.Fatal("migratedChannels leaked default-set channel (id=2) — retries would bypass overseas preference")
+			t.Fatal(
+				"migratedChannels leaked default-set channel (id=2) — retries would bypass overseas preference",
+			)
 		}
 	}
 }
 
 // Empty availableSet should still work (traverses all sets via getRandomChannel).
 func TestGetChannelWithFallback_EmptyAvailableSet(t *testing.T) {
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"default": {"gpt-4o": {ppioCh}},
@@ -387,9 +498,24 @@ func TestGetChannelWithFallback_EmptyAvailableSet(t *testing.T) {
 // When some overseas channels are banned AND the remaining ones have high
 // error rates, the set should be fully exhausted, triggering fallback to default.
 func TestGetChannelWithFallback_BannedPlusHighErrorRateFallsBack(t *testing.T) {
-	overseasCh1 := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	overseasCh2 := &model.Channel{ID: 3, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh1 := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	overseasCh2 := &model.Channel{
+		ID:       3,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh1, overseasCh2}},
@@ -400,7 +526,14 @@ func TestGetChannelWithFallback_BannedPlusHighErrorRateFallsBack(t *testing.T) {
 	banned := map[int64]struct{}{1: {}}
 	errorRates := map[int64]float64{3: 0.95}
 
-	ch, _, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, errorRates, banned)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		errorRates,
+		banned,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -409,16 +542,34 @@ func TestGetChannelWithFallback_BannedPlusHighErrorRateFallsBack(t *testing.T) {
 	// Phase 2 (retry without error cap): channel 1 still banned, channel 3
 	// now eligible (error cap removed) → should pick channel 3, staying in overseas.
 	if ch.ID != 3 {
-		t.Fatalf("expected overseas channel 3 (high error but not banned, retry without cap), got id=%d", ch.ID)
+		t.Fatalf(
+			"expected overseas channel 3 (high error but not banned, retry without cap), got id=%d",
+			ch.ID,
+		)
 	}
 }
 
 // When ALL overseas channels are banned (some also have high error rates),
 // the set is completely exhausted and must fall back to default.
 func TestGetChannelWithFallback_AllBannedWithMixedErrorRatesFallsBack(t *testing.T) {
-	overseasCh1 := &model.Channel{ID: 1, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	overseasCh2 := &model.Channel{ID: 3, Type: model.ChannelTypeNovita, Status: model.ChannelStatusEnabled, Priority: 10}
-	ppioCh := &model.Channel{ID: 2, Type: model.ChannelTypePPIO, Status: model.ChannelStatusEnabled, Priority: 10}
+	overseasCh1 := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	overseasCh2 := &model.Channel{
+		ID:       3,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	ppioCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
 
 	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
 		"overseas": {"gpt-4o": {overseasCh1, overseasCh2}},
@@ -429,7 +580,14 @@ func TestGetChannelWithFallback_AllBannedWithMixedErrorRatesFallsBack(t *testing
 	banned := map[int64]struct{}{1: {}, 3: {}}
 	errorRates := map[int64]float64{1: 0.95} // error rate doesn't matter — both banned
 
-	ch, _, err := getChannelWithFallback(mc, []string{"overseas", "default"}, "gpt-4o", mode.ChatCompletions, errorRates, banned)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		errorRates,
+		banned,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

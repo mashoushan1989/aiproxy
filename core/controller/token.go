@@ -90,11 +90,14 @@ type tokenModelWarnings struct {
 func (w tokenModelWarnings) Message() string {
 	parts := make([]string, 0, 2)
 	if len(w.GloballyInvalid) > 0 {
-		parts = append(parts, fmt.Sprintf("invalid models: %s", strings.Join(w.GloballyInvalid, ", ")))
+		parts = append(parts, "invalid models: "+strings.Join(w.GloballyInvalid, ", "))
 	}
 
 	if len(w.OutsideGroupSet) > 0 {
-		parts = append(parts, fmt.Sprintf("models outside group available_sets: %s", strings.Join(w.OutsideGroupSet, ", ")))
+		parts = append(
+			parts,
+			"models outside group available_sets: "+strings.Join(w.OutsideGroupSet, ", "),
+		)
 	}
 
 	if len(parts) == 0 {
@@ -173,12 +176,16 @@ func respondTokenSuccess(c *gin.Context, token *model.Token, warnings tokenModel
 
 	if message := warnings.Message(); message != "" {
 		resp.Message = message
+
 		if len(warnings.GloballyInvalid) > 0 {
 			c.Header("X-Aiproxy-Invalid-Models", strings.Join(warnings.GloballyInvalid, ","))
 		}
 
 		if len(warnings.OutsideGroupSet) > 0 {
-			c.Header("X-Aiproxy-Models-Outside-Group-Sets", strings.Join(warnings.OutsideGroupSet, ","))
+			c.Header(
+				"X-Aiproxy-Models-Outside-Group-Sets",
+				strings.Join(warnings.OutsideGroupSet, ","),
+			)
 		}
 	}
 

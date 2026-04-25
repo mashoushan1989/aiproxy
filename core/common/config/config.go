@@ -303,3 +303,25 @@ var nodeChannelSet = env.String("NODE_CHANNEL_SET", "")
 func GetNodeChannelSet() string {
 	return nodeChannelSet
 }
+
+// strictNodeSet, when true, removes the soft fallback to ChannelDefaultSet
+// for groups whose AvailableSets are derived from NODE_CHANNEL_SET. With
+// strict mode on, overseas-node requests for a model not present in the
+// overseas set HARD FAIL instead of routing to a default-set (PPIO) channel.
+//
+// This is the production safety mechanism for "海外用户绝不路由到 PPIO 渠道".
+// Recommended rollout: deploy with strict=false and shadow logging, then
+// flip to true once shadow logs confirm no critical fallback dependencies.
+var strictNodeSet atomic.Bool
+
+func init() {
+	strictNodeSet.Store(env.Bool("STRICT_NODE_SET", false))
+}
+
+func GetStrictNodeSet() bool {
+	return strictNodeSet.Load()
+}
+
+func SetStrictNodeSet(v bool) {
+	strictNodeSet.Store(v)
+}

@@ -98,6 +98,7 @@ func StartBatchProcessorSummary(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	interval := time.Duration(env.Int64("BATCH_UPDATE_INTERVAL_SECONDS", 5)) * time.Second
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -216,6 +217,7 @@ func processGroupUpdates(errs *batchErrors) {
 	if len(batchData.Groups) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		if err := BulkUpdateGroupUsedAmountAndRequestCount(batchData.Groups); err != nil {
 			notify.ErrorThrottle(
@@ -230,6 +232,7 @@ func processGroupUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for groupID, data := range batchData.Groups {
 		err := UpdateGroupUsedAmountAndRequestCount(
 			groupID,
@@ -254,6 +257,7 @@ func processTokenUpdates(errs *batchErrors) {
 	if len(batchData.Tokens) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		if err := BulkUpdateTokenUsedAmount(batchData.Tokens); err != nil {
 			notify.ErrorThrottle(
@@ -268,6 +272,7 @@ func processTokenUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for tokenID, data := range batchData.Tokens {
 		err := UpdateTokenUsedAmount(tokenID, data.Amount.InexactFloat64(), data.Count)
 		if IgnoreNotFound(err) != nil {
@@ -288,6 +293,7 @@ func processChannelUpdates(errs *batchErrors) {
 	if len(batchData.Channels) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		if err := BulkUpdateChannelUsedAmount(batchData.Channels); err != nil {
 			notify.ErrorThrottle(
@@ -302,6 +308,7 @@ func processChannelUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for channelID, data := range batchData.Channels {
 		err := UpdateChannelUsedAmount(
 			channelID,
@@ -327,13 +334,16 @@ func processGroupSummaryUpdates(errs *batchErrors) {
 	if len(batchData.GroupSummaries) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		entries := make([]SummaryData, 0, len(batchData.GroupSummaries))
+
 		keys := make([]GroupSummaryUnique, 0, len(batchData.GroupSummaries))
 		for _, data := range batchData.GroupSummaries {
 			keys = append(keys, data.GroupSummaryUnique)
 			entries = append(entries, data.SummaryData)
 		}
+
 		err := BulkUpsertSummaries(
 			LogDB, "group_summaries",
 			[]string{"group_id", "token_name", "model", "hour_timestamp"},
@@ -357,6 +367,7 @@ func processGroupSummaryUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for key, data := range batchData.GroupSummaries {
 		err := UpsertGroupSummary(data.GroupSummaryUnique, data.SummaryData)
 		if err != nil {
@@ -377,13 +388,16 @@ func processGroupSummaryMinuteUpdates(errs *batchErrors) {
 	if len(batchData.GroupSummariesMinute) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		entries := make([]SummaryData, 0, len(batchData.GroupSummariesMinute))
+
 		keys := make([]GroupSummaryMinuteUnique, 0, len(batchData.GroupSummariesMinute))
 		for _, data := range batchData.GroupSummariesMinute {
 			keys = append(keys, data.GroupSummaryMinuteUnique)
 			entries = append(entries, data.SummaryData)
 		}
+
 		err := BulkUpsertSummaries(
 			LogDB, "group_summary_minutes",
 			[]string{"group_id", "token_name", "model", "minute_timestamp"},
@@ -407,6 +421,7 @@ func processGroupSummaryMinuteUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for key, data := range batchData.GroupSummariesMinute {
 		err := UpsertGroupSummaryMinute(data.GroupSummaryMinuteUnique, data.SummaryData)
 		if err != nil {
@@ -427,13 +442,16 @@ func processSummaryUpdates(errs *batchErrors) {
 	if len(batchData.Summaries) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		entries := make([]SummaryData, 0, len(batchData.Summaries))
+
 		keys := make([]SummaryUnique, 0, len(batchData.Summaries))
 		for _, data := range batchData.Summaries {
 			keys = append(keys, data.SummaryUnique)
 			entries = append(entries, data.SummaryData)
 		}
+
 		err := BulkUpsertSummaries(
 			LogDB, "summaries",
 			[]string{"channel_id", "model", "hour_timestamp"},
@@ -457,6 +475,7 @@ func processSummaryUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for key, data := range batchData.Summaries {
 		err := UpsertSummary(data.SummaryUnique, data.SummaryData)
 		if err != nil {
@@ -477,13 +496,16 @@ func processSummaryMinuteUpdates(errs *batchErrors) {
 	if len(batchData.SummariesMinute) == 0 {
 		return
 	}
+
 	if !common.UsingSQLite {
 		entries := make([]SummaryData, 0, len(batchData.SummariesMinute))
+
 		keys := make([]SummaryMinuteUnique, 0, len(batchData.SummariesMinute))
 		for _, data := range batchData.SummariesMinute {
 			keys = append(keys, data.SummaryMinuteUnique)
 			entries = append(entries, data.SummaryData)
 		}
+
 		err := BulkUpsertSummaries(
 			LogDB, "summary_minutes",
 			[]string{"channel_id", "model", "minute_timestamp"},
@@ -507,6 +529,7 @@ func processSummaryMinuteUpdates(errs *batchErrors) {
 			return
 		}
 	}
+
 	for key, data := range batchData.SummariesMinute {
 		err := UpsertSummaryMinute(data.SummaryMinuteUnique, data.SummaryData)
 		if err != nil {

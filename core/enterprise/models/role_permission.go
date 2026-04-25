@@ -24,22 +24,22 @@ var AllModules = []string{
 
 // Permission keys for enterprise features (view + manage per module).
 const (
-	PermDashboardView        = "dashboard_view"
-	PermDashboardManage      = "dashboard_manage"
-	PermRankingView          = "ranking_view"
-	PermRankingManage        = "ranking_manage"
-	PermDepartmentDetailView = "department_detail_view"
+	PermDashboardView          = "dashboard_view"
+	PermDashboardManage        = "dashboard_manage"
+	PermRankingView            = "ranking_view"
+	PermRankingManage          = "ranking_manage"
+	PermDepartmentDetailView   = "department_detail_view"
 	PermDepartmentDetailManage = "department_detail_manage"
-	PermExportView           = "export_view"
-	PermExportManage         = "export_manage"
-	PermCustomReportView     = "custom_report_view"
-	PermCustomReportManage   = "custom_report_manage"
-	PermQuotaManageView      = "quota_manage_view"
-	PermQuotaManageManage    = "quota_manage_manage"
-	PermUserManageView       = "user_manage_view"
-	PermUserManageManage     = "user_manage_manage"
-	PermAccessControlView    = "access_control_view"
-	PermAccessControlManage  = "access_control_manage"
+	PermExportView             = "export_view"
+	PermExportManage           = "export_manage"
+	PermCustomReportView       = "custom_report_view"
+	PermCustomReportManage     = "custom_report_manage"
+	PermQuotaManageView        = "quota_manage_view"
+	PermQuotaManageManage      = "quota_manage_manage"
+	PermUserManageView         = "user_manage_view"
+	PermUserManageManage       = "user_manage_manage"
+	PermAccessControlView      = "access_control_view"
+	PermAccessControlManage    = "access_control_manage"
 )
 
 // ViewPermission returns the view permission key for a module.

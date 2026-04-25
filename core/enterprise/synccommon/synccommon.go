@@ -97,27 +97,6 @@ func ToModelConfigKeys(m map[string]any) map[model.ModelConfigKey]any {
 	return out
 }
 
-// ownerPriority defines sync priority: higher value = higher priority.
-// PPIO is the primary domestic provider (CNY prices), so it takes precedence
-// over Novita (USD→CNY converted prices) for shared models.
-var ownerPriority = map[model.ModelOwner]int{
-	model.ModelOwnerPPIO:   2,
-	model.ModelOwnerNovita: 1,
-}
-
-// CanClaimOwnership returns true if newOwner can take ownership from existingOwner.
-// A provider can claim if it has strictly higher priority than the current owner.
-// Note: unknown owners have implicit priority 0 (map zero-value).
-func CanClaimOwnership(existingOwner, newOwner model.ModelOwner) bool {
-	return ownerPriority[newOwner] > ownerPriority[existingOwner]
-}
-
-// ShouldSkipOwnership returns true when the caller (newOwner) must NOT modify an
-// existing model because it belongs to a higher-priority provider.
-func ShouldSkipOwnership(existingOwner, newOwner model.ModelOwner) bool {
-	return existingOwner != newOwner && !CanClaimOwnership(existingOwner, newOwner)
-}
-
 // IsLocalOnlyMode returns true for model types that are generated locally and
 // not sourced from the standard V1/V2 remote model list API. These must be
 // excluded from delete detection during sync diagnostics to avoid false positives.

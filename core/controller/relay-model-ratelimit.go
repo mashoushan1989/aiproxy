@@ -14,7 +14,11 @@ func ModelsRateLimit(c *gin.Context) {
 	token := middleware.GetToken(c)
 
 	if !modelsLimiter.Allow(token.ID) {
-		middleware.ErrorResponse(c, http.StatusTooManyRequests, "rate limit exceeded for models queries")
+		middleware.ErrorResponse(
+			c,
+			http.StatusTooManyRequests,
+			"rate limit exceeded for models queries",
+		)
 		c.Abort()
 
 		return

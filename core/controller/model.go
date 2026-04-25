@@ -34,19 +34,19 @@ type OpenAIModelPermission struct {
 }
 
 type OpenAIModels struct {
-	Parent     *string                 `json:"parent"`
-	ID         string                  `json:"id"`
-	Object     string                  `json:"object"`
-	OwnedBy    string                  `json:"owned_by"`
-	Root       string                  `json:"root"`
-	Permission []OpenAIModelPermission `json:"permission"`
-	Created    int                     `json:"created"`
-	Price       *model.Price                `json:"price,omitempty"`
-	ImagePrices map[string]float64          `json:"image_prices,omitempty"`
+	Parent      *string                      `json:"parent"`
+	ID          string                       `json:"id"`
+	Object      string                       `json:"object"`
+	OwnedBy     string                       `json:"owned_by"`
+	Root        string                       `json:"root"`
+	Permission  []OpenAIModelPermission      `json:"permission"`
+	Created     int                          `json:"created"`
+	Price       *model.Price                 `json:"price,omitempty"`
+	ImagePrices map[string]float64           `json:"image_prices,omitempty"`
 	Config      map[model.ModelConfigKey]any `json:"config,omitempty"`
-	Type        *mode.Mode                  `json:"type,omitempty"`
-	RPM         *int64                      `json:"rpm,omitempty"`
-	TPM         *int64                      `json:"tpm,omitempty"`
+	Type        *mode.Mode                   `json:"type,omitempty"`
+	RPM         *int64                       `json:"rpm,omitempty"`
+	TPM         *int64                       `json:"tpm,omitempty"`
 }
 
 type BuiltinModelConfig model.ModelConfig

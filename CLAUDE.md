@@ -320,6 +320,18 @@ Runtime config via environment variables. Key ones:
 - `REDIS_CONN_STRING` — Redis connection
 - `ADMIN_KEY` — Admin API authentication
 - `FEISHU_WEBHOOK` — Notification webhook
+- `NODE_CHANNEL_SET` — Per-node default channel set (e.g. `overseas` for the海外 node). Empty / unset means `default`.
+- `STRICT_NODE_SET` — When `true`, removes the soft fallback to `default` set for groups whose `AvailableSets` come from `NODE_CHANNEL_SET`. With strict on, overseas requests for a model not in the overseas set hard-fail instead of routing to PPIO. Recommended rollout: deploy with strict=false and observe `shadow_strict_would_reject` WARN logs for 24-48h, then flip to true.
+
+### Sync Ownership (synced_from)
+
+`model_configs` rows carry a `synced_from` tag identifying which sync owns the row's lifecycle:
+- `'ppio'` / `'novita'` — written by the named sync; only that sync may update / delete / age-out the row
+- `''` (empty) — written by autodiscover, virtual model injection, manual admin UI, or YAML overlay. **Sync code MUST NOT touch these rows** (enforced by `synccommon.CanSyncOwn`)
+
+`channel.Models` updates use `synccommon.MergeChannelModels` instead of replace, so unowned (`synced_from=''`) entries survive sync runs. `MissingCount` accumulates per-row when the owning sync misses the model in upstream; channel.Models drops a model after `SyncMissingThreshold=7` consecutive misses (the row itself stays — admin can re-add).
+
+Cross-node sync race protection uses `pg_try_advisory_lock` per-provider so only one node mutates at a time when both share a PostgreSQL via WireGuard.
 
 ## Linting Rules
 

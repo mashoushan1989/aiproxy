@@ -322,6 +322,7 @@ func BulkUpdateGroupUsedAmountAndRequestCount(updates map[string]*GroupUpdate) e
 		chunk := all[start:end]
 
 		args := make([]any, 0, len(chunk)*3)
+
 		valueClauses := make([]string, 0, len(chunk))
 		for i, e := range chunk {
 			base := i * 3
@@ -355,14 +356,21 @@ func bulkUpdateGroupScanRows(sql string, args []any, updates map[string]*GroupUp
 	defer rows.Close()
 
 	for rows.Next() {
-		var groupID string
-		var usedAmount float64
+		var (
+			groupID    string
+			usedAmount float64
+		)
+
 		if err := rows.Scan(&groupID, &usedAmount); err != nil {
 			log.Error("bulk update group scan failed: " + err.Error())
 			continue
 		}
+
 		if data, ok := updates[groupID]; ok && data.Amount.IsPositive() {
-			if cacheErr := CacheUpdateGroupUsedAmountOnlyIncrease(groupID, usedAmount); cacheErr != nil {
+			if cacheErr := CacheUpdateGroupUsedAmountOnlyIncrease(
+				groupID,
+				usedAmount,
+			); cacheErr != nil {
 				log.Error("bulk update group cache failed: " + cacheErr.Error())
 			}
 		}
@@ -443,9 +451,19 @@ func SearchGroup(
 	}
 
 	if !common.UsingSQLite {
-		tx = tx.Where("id ILIKE ? OR name ILIKE ? OR available_sets ILIKE ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+		tx = tx.Where(
+			"id ILIKE ? OR name ILIKE ? OR available_sets ILIKE ?",
+			"%"+keyword+"%",
+			"%"+keyword+"%",
+			"%"+keyword+"%",
+		)
 	} else {
-		tx = tx.Where("id LIKE ? OR name LIKE ? OR available_sets LIKE ?", "%"+keyword+"%", "%"+keyword+"%", "%"+keyword+"%")
+		tx = tx.Where(
+			"id LIKE ? OR name LIKE ? OR available_sets LIKE ?",
+			"%"+keyword+"%",
+			"%"+keyword+"%",
+			"%"+keyword+"%",
+		)
 	}
 
 	err = tx.Count(&total).Error

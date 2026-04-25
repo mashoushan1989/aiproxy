@@ -384,12 +384,20 @@ func (g *GroupCache) GetAvailableSets() []string {
 	if len(g.AvailableSets) > 0 {
 		return g.AvailableSets
 	}
+
 	if nodeSet := config.GetNodeChannelSet(); nodeSet != "" {
 		if nodeSet == ChannelDefaultSet {
 			return []string{ChannelDefaultSet}
 		}
+		// Strict mode: only the node's own set, no soft fallback to default.
+		// Used in production to guarantee "overseas requests never route to PPIO".
+		if config.GetStrictNodeSet() {
+			return []string{nodeSet}
+		}
+
 		return []string{nodeSet, ChannelDefaultSet}
 	}
+
 	return []string{ChannelDefaultSet}
 }
 

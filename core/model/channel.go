@@ -110,7 +110,7 @@ const (
 )
 
 func (c ChannelConfigs) GetBool(key string) bool {
-	v, _ := c[key]
+	v := c[key]
 	b, _ := v.(bool)
 
 	return b
@@ -612,13 +612,20 @@ func BulkUpdateChannelUsedAmount(updates map[int]*ChannelUpdate) error {
 		chunk := all[start:end]
 
 		args := make([]any, 0, len(chunk)*4)
+
 		valueClauses := make([]string, 0, len(chunk))
 		for i, e := range chunk {
 			base := i * 4
 			valueClauses = append(valueClauses,
 				fmt.Sprintf("($%d::int, $%d::numeric, $%d::int, $%d::int)",
 					base+1, base+2, base+3, base+4))
-			args = append(args, e.id, e.data.Amount.InexactFloat64(), e.data.Count, e.data.RetryCount)
+			args = append(
+				args,
+				e.id,
+				e.data.Amount.InexactFloat64(),
+				e.data.Count,
+				e.data.RetryCount,
+			)
 		}
 
 		sql := fmt.Sprintf(`UPDATE channels AS c SET

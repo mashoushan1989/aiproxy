@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"github.com/labring/aiproxy/core/model"
 	novitarelay "github.com/labring/aiproxy/core/relay/adaptor/novita"
 	"github.com/labring/aiproxy/core/relay/mode"
+	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -39,6 +39,27 @@ func ExecuteSync(
 		return nil, ErrSyncInProgress
 	}
 	defer syncMu.Unlock()
+
+	// Cross-node guard: with a shared PG (WireGuard), both domestic and overseas
+	// nodes can independently trigger Novita sync. The advisory lock ensures
+	// only one node mutates data at a time. SQLite path is a no-op.
+	locked, lockErr := synccommon.AcquireSyncLock(model.DB, synccommon.SyncedFromNovita)
+	if lockErr != nil {
+		log.Printf("Novita sync: advisory lock check failed (continuing without): %v", lockErr)
+	} else if !locked {
+		return nil, ErrSyncInProgress
+	}
+
+	defer func() {
+		if locked {
+			if err := synccommon.ReleaseSyncLock(
+				model.DB,
+				synccommon.SyncedFromNovita,
+			); err != nil {
+				log.Printf("Novita sync: failed to release advisory lock: %v", err)
+			}
+		}
+	}()
 
 	startTime := time.Now()
 	result := &SyncResult{
@@ -116,7 +137,10 @@ func ExecuteSync(
 	// Step 3.5: Multimodal sync — independent pipeline from chat sync above.
 	// Leaving multimodalNames nil signals EnsureNovitaChannels to preserve the
 	// multimodal channel's Models on transient upstream failure.
-	var multimodalNames []string
+	var (
+		multimodalNames []string
+		multimodalOK    = true // true if not attempted or attempted+succeeded
+	)
 
 	if cfg.MgmtToken != "" {
 		synccommon.SendProgress(progressCallback, "multimodal", "同步多模态模型（图像/视频/音频）...", 75, nil)
@@ -130,6 +154,7 @@ func ExecuteSync(
 		if mmErr != nil {
 			log.Printf("Novita sync: multimodal sync failed (non-fatal): %v", mmErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("multimodal sync: %v", mmErr))
+			multimodalOK = false
 		} else {
 			result.Summary.ToAdd += mmAdded
 			result.Summary.ToUpdate += mmUpdated
@@ -139,6 +164,24 @@ func ExecuteSync(
 				log.Printf("Novita sync: multimodal models added=%d updated=%d", mmAdded, mmUpdated)
 			}
 		}
+	}
+
+	// Step 3.6: Bookkeeping — increment missing_count for owned rows whose
+	// models did NOT appear in this run's upstream union (chat + multimodal).
+	// Gated on chat success and multimodal-not-failed; see synccommon.BookkeepMissing.
+	chatIDs := make([]string, len(allModels))
+	for i := range allModels {
+		chatIDs[i] = allModels[i].ID
+	}
+
+	if missErr := synccommon.BookkeepMissing(
+		model.DB,
+		synccommon.SyncedFromNovita,
+		chatIDs,
+		multimodalNames,
+		multimodalOK,
+	); missErr != nil {
+		log.Printf("Novita sync: failed to update missing_count: %v", missErr)
 	}
 
 	// Classify models directly from upstream API data and replace channel model lists.
@@ -209,6 +252,7 @@ func executeSyncTransaction(
 				result.Errors,
 				fmt.Sprintf("model %s not found in remote models", modelDiff.ModelID),
 			)
+
 			continue
 		}
 
@@ -217,6 +261,7 @@ func executeSyncTransaction(
 				result.Errors,
 				fmt.Sprintf("failed to add %s: %v", modelDiff.ModelID, err),
 			)
+
 			continue
 		}
 
@@ -239,6 +284,7 @@ func executeSyncTransaction(
 				result.Errors,
 				fmt.Sprintf("model %s not found in remote models", modelDiff.ModelID),
 			)
+
 			continue
 		}
 
@@ -247,6 +293,7 @@ func executeSyncTransaction(
 				result.Errors,
 				fmt.Sprintf("failed to update %s: %v", modelDiff.ModelID, err),
 			)
+
 			continue
 		}
 
@@ -264,13 +311,14 @@ func executeSyncTransaction(
 				progress, nil,
 			)
 
-			if err := tx.Where("model = ? AND owner = ?", modelDiff.ModelID, string(model.ModelOwnerNovita)).
+			if err := tx.Where("model = ? AND synced_from = ?", modelDiff.ModelID, synccommon.SyncedFromNovita).
 				Delete(&model.ModelConfig{}).
 				Error; err != nil {
 				result.Errors = append(
 					result.Errors,
 					fmt.Sprintf("failed to delete %s: %v", modelDiff.ModelID, err),
 				)
+
 				continue
 			}
 
@@ -298,11 +346,13 @@ func createModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 
 	var existing model.ModelConfig
 	if err := tx.Where("model = ?", m.ID).First(&existing).Error; err == nil {
-		if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerNovita) {
+		if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromNovita) {
 			return nil
 		}
 
 		existing.Owner = model.ModelOwnerNovita
+		existing.SyncedFrom = synccommon.SyncedFromNovita
+		existing.MissingCount = 0
 		existing.Config = configData
 		existing.Type = modeFromEndpoints(m.ModelType, m.Endpoints)
 		existing.RPM = rpm
@@ -313,12 +363,13 @@ func createModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 	}
 
 	mc := model.ModelConfig{
-		Model:  m.ID,
-		Owner:  model.ModelOwnerNovita,
-		Type:   modeFromEndpoints(m.ModelType, m.Endpoints),
-		RPM:    rpm,
-		TPM:    tpm,
-		Config: configData,
+		Model:      m.ID,
+		Owner:      model.ModelOwnerNovita,
+		SyncedFrom: synccommon.SyncedFromNovita,
+		Type:       modeFromEndpoints(m.ModelType, m.Endpoints),
+		RPM:        rpm,
+		TPM:        tpm,
+		Config:     configData,
 	}
 
 	setPriceFromV2Model(&mc.Price, m, exchangeRate)
@@ -334,11 +385,13 @@ func updateModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 		return err
 	}
 
-	if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerNovita) {
+	if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromNovita) {
 		return nil
 	}
 
 	existing.Owner = model.ModelOwnerNovita
+	existing.SyncedFrom = synccommon.SyncedFromNovita
+	existing.MissingCount = 0
 	existing.Type = modeFromEndpoints(m.ModelType, m.Endpoints)
 	existing.Config = synccommon.ToModelConfigKeys(buildConfigFromV2Model(m))
 
@@ -616,20 +669,52 @@ func ensureNovitaChannelsFromModels(
 		switch channels[i].Type {
 		case model.ChannelTypeAnthropic:
 			if !skipChatUpdate {
-				channels[i].Models = anthropicModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromNovita,
+					anthropicModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf(
+						"merge anthropic channel %d: %w",
+						channels[i].ID,
+						mergeErr,
+					)
+				}
+
+				channels[i].Models = merged
 			}
 
 			if channels[i].Configs == nil {
 				channels[i].Configs = make(model.ChannelConfigs)
 			}
 
-			channels[i].Configs.SetOrInit(model.ChannelConfigPurePassthrough, anthropicPurePassthrough, false)
+			channels[i].Configs.SetOrInit(
+				model.ChannelConfigPurePassthrough,
+				anthropicPurePassthrough,
+				false,
+			)
 
 		case model.ChannelTypeNovitaMultimodal:
 			hasMultimodal = true
 
 			if !skipMultimodalUpdate {
-				channels[i].Models = multimodalModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromNovita,
+					multimodalModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf(
+						"merge multimodal channel %d: %w",
+						channels[i].ID,
+						mergeErr,
+					)
+				}
+
+				channels[i].Models = merged
 			}
 
 			if channels[i].Configs == nil {
@@ -641,7 +726,17 @@ func ensureNovitaChannelsFromModels(
 		default:
 			// ChannelTypeNovita (OpenAI-compatible)
 			if !skipChatUpdate {
-				channels[i].Models = openaiModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromNovita,
+					openaiModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf("merge openai channel %d: %w", channels[i].ID, mergeErr)
+				}
+
+				channels[i].Models = merged
 			}
 
 			if channels[i].Configs == nil {
@@ -851,12 +946,14 @@ func syncMultimodalModels(
 
 		var existing model.ModelConfig
 		if txErr := model.DB.Where("model = ?", modelName).First(&existing).Error; txErr == nil {
-			// Only update if we own or can claim via priority
-			if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerNovita) {
+			// Only update rows we own (or our previous run wrote).
+			if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromNovita) {
 				continue
 			}
 
 			existing.Owner = model.ModelOwnerNovita
+			existing.SyncedFrom = synccommon.SyncedFromNovita
+			existing.MissingCount = 0
 			existing.Type = modeFromEndpoints(modelType, nil)
 			existing.Config = configData
 
@@ -877,12 +974,13 @@ func syncMultimodalModels(
 			updated++
 		} else {
 			mc := model.ModelConfig{
-				Model:  modelName,
-				Owner:  model.ModelOwnerNovita,
-				Type:   modeFromEndpoints(modelType, nil),
-				RPM:    60,
-				TPM:    1000000,
-				Config: configData,
+				Model:      modelName,
+				Owner:      model.ModelOwnerNovita,
+				SyncedFrom: synccommon.SyncedFromNovita,
+				Type:       modeFromEndpoints(modelType, nil),
+				RPM:        60,
+				TPM:        1000000,
+				Config:     configData,
 			}
 
 			if minPrice > 0 {

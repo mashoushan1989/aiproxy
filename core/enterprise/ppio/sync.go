@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"github.com/labring/aiproxy/core/model"
 	ppiorelay "github.com/labring/aiproxy/core/relay/adaptor/ppio"
 	"github.com/labring/aiproxy/core/relay/mode"
+	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -105,6 +105,24 @@ func ExecuteSync( //nolint:cyclop
 		return nil, ErrSyncInProgress
 	}
 	defer syncMu.Unlock()
+
+	// Cross-node guard: with a shared PG (WireGuard), both domestic and overseas
+	// nodes can independently trigger PPIO sync. The advisory lock ensures only
+	// one node actually mutates the data at a time. SQLite path is a no-op.
+	locked, lockErr := synccommon.AcquireSyncLock(model.DB, synccommon.SyncedFromPPIO)
+	if lockErr != nil {
+		log.Printf("PPIO sync: advisory lock check failed (continuing without): %v", lockErr)
+	} else if !locked {
+		return nil, ErrSyncInProgress
+	}
+
+	defer func() {
+		if locked {
+			if err := synccommon.ReleaseSyncLock(model.DB, synccommon.SyncedFromPPIO); err != nil {
+				log.Printf("PPIO sync: failed to release advisory lock: %v", err)
+			}
+		}
+	}()
 
 	startTime := time.Now()
 	result := &SyncResult{
@@ -198,7 +216,10 @@ func ExecuteSync( //nolint:cyclop
 	// Step 3.5: Multimodal sync — independent pipeline from chat sync above.
 	// Leaving multimodalNames nil signals EnsurePPIOChannels to preserve the
 	// multimodal channel's Models on transient upstream failure.
-	var multimodalNames []string
+	var (
+		multimodalNames []string
+		multimodalOK    = true // true if not attempted or attempted+succeeded
+	)
 
 	if cfg.MgmtToken != "" {
 		synccommon.SendProgress(progressCallback, "multimodal", "同步多模态模型（图像/视频/音频）...", 75, nil)
@@ -207,6 +228,7 @@ func ExecuteSync( //nolint:cyclop
 		if mmErr != nil {
 			log.Printf("PPIO sync: multimodal sync failed (non-fatal): %v", mmErr)
 			result.Errors = append(result.Errors, fmt.Sprintf("multimodal sync: %v", mmErr))
+			multimodalOK = false
 		} else {
 			result.Summary.ToAdd += mmAdded
 			result.Summary.ToUpdate += mmUpdated
@@ -216,6 +238,24 @@ func ExecuteSync( //nolint:cyclop
 				log.Printf("PPIO sync: multimodal models added=%d updated=%d", mmAdded, mmUpdated)
 			}
 		}
+	}
+
+	// Step 3.6: Bookkeeping — increment missing_count for owned rows whose
+	// models did NOT appear in this run's upstream union (chat + multimodal).
+	// Gated on chat success and multimodal-not-failed; see synccommon.BookkeepMissing.
+	chatIDs := make([]string, len(allModels))
+	for i := range allModels {
+		chatIDs[i] = allModels[i].ID
+	}
+
+	if missErr := synccommon.BookkeepMissing(
+		model.DB,
+		synccommon.SyncedFromPPIO,
+		chatIDs,
+		multimodalNames,
+		multimodalOK,
+	); missErr != nil {
+		log.Printf("PPIO sync: failed to update missing_count: %v", missErr)
 	}
 
 	// Step 4: Ensure channels exist
@@ -343,7 +383,7 @@ func executeSyncTransaction(
 				nil,
 			)
 
-			if err := tx.Where("model = ? AND owner = ?", modelDiff.ModelID, string(model.ModelOwnerPPIO)).
+			if err := tx.Where("model = ? AND synced_from = ?", modelDiff.ModelID, synccommon.SyncedFromPPIO).
 				Delete(&model.ModelConfig{}).
 				Error; err != nil {
 				result.Errors = append(
@@ -441,12 +481,14 @@ func syncMultimodalModels(
 
 		var existing model.ModelConfig
 		if txErr := model.DB.Where("model = ?", modelName).First(&existing).Error; txErr == nil {
-			// Only update if we own or can claim via priority
-			if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerPPIO) {
+			// Only update rows we own (or our previous run wrote).
+			if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromPPIO) {
 				continue
 			}
 
 			existing.Owner = model.ModelOwnerPPIO
+			existing.SyncedFrom = synccommon.SyncedFromPPIO
+			existing.MissingCount = 0
 			existing.Type = inferModeFromPPIO(modelType, nil)
 			existing.Config = configData
 
@@ -464,12 +506,13 @@ func syncMultimodalModels(
 		} else {
 			// Create new
 			mc := model.ModelConfig{
-				Model:  modelName,
-				Owner:  model.ModelOwnerPPIO,
-				Type:   inferModeFromPPIO(modelType, nil),
-				RPM:    60,
-				TPM:    1000000,
-				Config: configData,
+				Model:      modelName,
+				Owner:      model.ModelOwnerPPIO,
+				SyncedFrom: synccommon.SyncedFromPPIO,
+				Type:       inferModeFromPPIO(modelType, nil),
+				RPM:        60,
+				TPM:        1000000,
+				Config:     configData,
 			}
 
 			if minPrice > 0 {
@@ -633,20 +676,52 @@ func ensurePPIOChannelsFromModels(
 		switch channels[i].Type {
 		case model.ChannelTypeAnthropic:
 			if !skipChatUpdate {
-				channels[i].Models = anthropicModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromPPIO,
+					anthropicModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf(
+						"merge anthropic channel %d: %w",
+						channels[i].ID,
+						mergeErr,
+					)
+				}
+
+				channels[i].Models = merged
 			}
 
 			if channels[i].Configs == nil {
 				channels[i].Configs = make(model.ChannelConfigs)
 			}
 
-			channels[i].Configs.SetOrInit(model.ChannelConfigPurePassthrough, anthropicPurePassthrough, false)
+			channels[i].Configs.SetOrInit(
+				model.ChannelConfigPurePassthrough,
+				anthropicPurePassthrough,
+				false,
+			)
 
 		case model.ChannelTypePPIOMultimodal:
 			hasMultimodal = true
 
 			if !skipMultimodalUpdate {
-				channels[i].Models = multimodalModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromPPIO,
+					multimodalModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf(
+						"merge multimodal channel %d: %w",
+						channels[i].ID,
+						mergeErr,
+					)
+				}
+
+				channels[i].Models = merged
 			}
 
 			if channels[i].Configs == nil {
@@ -659,7 +734,17 @@ func ensurePPIOChannelsFromModels(
 		default:
 			// ChannelTypePPIO (OpenAI-compatible)
 			if !skipChatUpdate {
-				channels[i].Models = openaiModels
+				merged, mergeErr := synccommon.MergeChannelModels(
+					model.DB,
+					synccommon.SyncedFromPPIO,
+					openaiModels,
+					channels[i].Models,
+				)
+				if mergeErr != nil {
+					return info, fmt.Errorf("merge openai channel %d: %w", channels[i].ID, mergeErr)
+				}
+
+				channels[i].Models = merged
 			}
 			// Write path_base_map so the passthrough adaptor can route
 			// Responses API and web-search to their respective base URLs
@@ -817,65 +902,6 @@ func RecordSyncHistory(opts SyncOptions, result *SyncResult) error {
 	return model.DB.Create(&history).Error
 }
 
-// V1 model config creation (old public API)
-
-func createModelConfig(tx *gorm.DB, ppioModel *PPIOModel) error {
-	configData := synccommon.ToModelConfigKeys(buildConfigFromPPIOModel(ppioModel))
-
-	var existing model.ModelConfig
-	if err := tx.Where("model = ?", ppioModel.ID).First(&existing).Error; err == nil {
-		if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerPPIO) {
-			return nil
-		}
-
-		existing.Owner = model.ModelOwnerPPIO
-		existing.Config = configData
-		existing.Type = inferModeFromPPIO(ppioModel.ModelType, ppioModel.Endpoints)
-		existing.RPM = 60
-		existing.TPM = 1000000
-		existing.Price.InputPrice = model.ZeroNullFloat64(ppioModel.GetInputPricePerToken())
-		existing.Price.InputPriceUnit = model.ZeroNullInt64(1)
-		existing.Price.OutputPrice = model.ZeroNullFloat64(ppioModel.GetOutputPricePerToken())
-		existing.Price.OutputPriceUnit = model.ZeroNullInt64(1)
-
-		return tx.Save(&existing).Error
-	}
-
-	modelConfig := model.ModelConfig{
-		Model:  ppioModel.ID,
-		Owner:  model.ModelOwnerPPIO,
-		Type:   inferModeFromPPIO(ppioModel.ModelType, ppioModel.Endpoints),
-		RPM:    60,
-		TPM:    1000000,
-		Config: configData,
-	}
-
-	modelConfig.Price.InputPrice = model.ZeroNullFloat64(ppioModel.GetInputPricePerToken())
-	modelConfig.Price.InputPriceUnit = model.ZeroNullInt64(1)
-	modelConfig.Price.OutputPrice = model.ZeroNullFloat64(ppioModel.GetOutputPricePerToken())
-	modelConfig.Price.OutputPriceUnit = model.ZeroNullInt64(1)
-
-	return tx.Create(&modelConfig).Error
-}
-
-func updateModelConfig(tx *gorm.DB, ppioModel *PPIOModel) error {
-	var existing model.ModelConfig
-	if err := tx.Where("model = ? AND owner = ?", ppioModel.ID, string(model.ModelOwnerPPIO)).
-		First(&existing).
-		Error; err != nil {
-		return err
-	}
-
-	existing.Type = inferModeFromPPIO(ppioModel.ModelType, ppioModel.Endpoints)
-	existing.Config = synccommon.ToModelConfigKeys(buildConfigFromPPIOModel(ppioModel))
-	existing.Price.InputPrice = model.ZeroNullFloat64(ppioModel.GetInputPricePerToken())
-	existing.Price.OutputPrice = model.ZeroNullFloat64(ppioModel.GetOutputPricePerToken())
-	existing.Price.InputPriceUnit = model.ZeroNullInt64(1)
-	existing.Price.OutputPriceUnit = model.ZeroNullInt64(1)
-
-	return tx.Save(&existing).Error
-}
-
 // V2 model config creation (management API with tiered & cache pricing)
 
 func createModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
@@ -893,11 +919,13 @@ func createModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 
 	var existing model.ModelConfig
 	if err := tx.Where("model = ?", m.ID).First(&existing).Error; err == nil {
-		if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerPPIO) {
+		if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromPPIO) {
 			return nil
 		}
 
 		existing.Owner = model.ModelOwnerPPIO
+		existing.SyncedFrom = synccommon.SyncedFromPPIO
+		existing.MissingCount = 0
 		existing.Config = configData
 		existing.Type = inferModeFromPPIO(m.ModelType, m.Endpoints)
 		existing.RPM = rpm
@@ -909,12 +937,13 @@ func createModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 
 	// Model doesn't exist — create new
 	modelConfig := model.ModelConfig{
-		Model:  m.ID,
-		Owner:  model.ModelOwnerPPIO,
-		Type:   inferModeFromPPIO(m.ModelType, m.Endpoints),
-		RPM:    rpm,
-		TPM:    tpm,
-		Config: configData,
+		Model:      m.ID,
+		Owner:      model.ModelOwnerPPIO,
+		SyncedFrom: synccommon.SyncedFromPPIO,
+		Type:       inferModeFromPPIO(m.ModelType, m.Endpoints),
+		RPM:        rpm,
+		TPM:        tpm,
+		Config:     configData,
 	}
 
 	setPriceFromV2Model(&modelConfig.Price, m)
@@ -930,11 +959,13 @@ func updateModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 		return err
 	}
 
-	if synccommon.ShouldSkipOwnership(existing.Owner, model.ModelOwnerPPIO) {
+	if !synccommon.CanSyncOwn(existing.SyncedFrom, synccommon.SyncedFromPPIO) {
 		return nil
 	}
 
 	existing.Owner = model.ModelOwnerPPIO
+	existing.SyncedFrom = synccommon.SyncedFromPPIO
+	existing.MissingCount = 0
 	existing.Type = inferModeFromPPIO(m.ModelType, m.Endpoints)
 	existing.Config = synccommon.ToModelConfigKeys(buildConfigFromPPIOModelV2(m))
 

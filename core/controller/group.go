@@ -837,18 +837,22 @@ func GetGroupNames(c *gin.Context) {
 
 	// Deduplicate and cap at maxGroupNameIDs
 	seen := make(map[string]struct{}, len(raw))
+
 	ids := make([]string, 0, len(raw))
 	for _, id := range raw {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
 		}
+
 		if _, ok := seen[id]; ok {
 			continue
 		}
+
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
+
 	if len(ids) > maxGroupNameIDs {
 		ids = ids[:maxGroupNameIDs]
 	}

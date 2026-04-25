@@ -30,8 +30,8 @@ func setupNovitaChannelTestDB(t *testing.T) {
 		common.UsingSQLite = prevUsingSQLite
 	})
 
-	if err := testDB.AutoMigrate(&model.Channel{}); err != nil {
-		t.Fatalf("failed to migrate channel table: %v", err)
+	if err := testDB.AutoMigrate(&model.Channel{}, &model.ModelConfig{}); err != nil {
+		t.Fatalf("failed to migrate tables: %v", err)
 	}
 }
 
@@ -199,8 +199,10 @@ func TestEnsureNovitaChannelsFromModels_SkipMultimodalPreservesChannel(t *testin
 
 	got := novitaModelsByType(t)
 
+	// Stale (unowned, no model_config row) entries are preserved by merge.
 	if want := []string{
 		"claude-sonnet-4-20250514",
+		"stale-claude",
 	}; !slices.Equal(
 		got[model.ChannelTypeAnthropic],
 		want,
@@ -208,7 +210,13 @@ func TestEnsureNovitaChannelsFromModels_SkipMultimodalPreservesChannel(t *testin
 		t.Errorf("anthropic Models = %v, want %v", got[model.ChannelTypeAnthropic], want)
 	}
 
-	if want := []string{"deepseek-v3"}; !slices.Equal(got[model.ChannelTypeNovita], want) {
+	if want := []string{
+		"deepseek-v3",
+		"stale-openai",
+	}; !slices.Equal(
+		got[model.ChannelTypeNovita],
+		want,
+	) {
 		t.Errorf("openai Models = %v, want %v", got[model.ChannelTypeNovita], want)
 	}
 
@@ -250,6 +258,7 @@ func TestEnsureNovitaChannelsFromModels_SkipChatPreservesChannels(t *testing.T) 
 
 	if want := []string{
 		"flux-schnell",
+		"stale-flux",
 	}; !slices.Equal(
 		got[model.ChannelTypeNovitaMultimodal],
 		want,
@@ -292,7 +301,8 @@ func TestEnsureNovitaChannels_InjectsVirtualWebSearchModels(t *testing.T) {
 		t.Fatalf("expected adaptor to declare at least one virtual WebSearch model")
 	}
 
-	want := append([]string{"deepseek-v3"}, virtual...)
+	// stale-openai (unowned, no model_config row) is preserved by merge.
+	want := append([]string{"deepseek-v3", "stale-openai"}, virtual...)
 	slices.Sort(want)
 
 	if !slices.Equal(got[model.ChannelTypeNovita], want) {
