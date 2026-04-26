@@ -83,13 +83,47 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 }
 
 // migrateModelConfigSyncedFrom assigns the synced_from tag to rows that
-// pre-date the field. Strategy: rows with owner='ppio' or owner='novita'
-// are claimed by their respective sync. Rows with any other owner (or empty)
-// remain synced_from=” — those are autodiscover/virtual/manual entries
-// that sync MUST NEVER touch (per the SyncedFrom design contract).
+// pre-date the field. Strategy: rows with owner='ppio'/'novita' AND whose
+// model name appears in some active channel.Models are claimed by the
+// corresponding sync. Manually-added alias rows (e.g. claude-opus-4-6 used
+// only via channel.model_mapping) and virtual rows (web-search/tavily) keep
+// synced_from='' — sync MUST NOT touch them per the SyncedFrom contract.
 //
-// Idempotent: only updates rows where synced_from is empty/NULL.
+// Idempotent: only touches rows where synced_from is empty/NULL.
+//
+// Cross-dialect: filters routed-models in Go rather than via PG-specific
+// jsonb_array_elements_text so SQLite tests behave identically to production.
 func migrateModelConfigSyncedFrom(db *gorm.DB) {
+	// Build the set of models actually referenced by an active channel.
+	// We only need the Models field; selecting that column keeps the read cheap.
+	var channels []struct {
+		Models []string `gorm:"serializer:fastjson;type:text"`
+	}
+	if err := db.Table("channels").
+		Where("status = ?", 1).
+		Select("models").
+		Scan(&channels).Error; err != nil {
+		log.Errorf("failed to read channels for synced_from backfill: %v", err)
+		return
+	}
+
+	seen := make(map[string]struct{})
+	for _, c := range channels {
+		for _, m := range c.Models {
+			seen[m] = struct{}{}
+		}
+	}
+
+	if len(seen) == 0 {
+		// First-time install with no channels yet — nothing routable to claim.
+		return
+	}
+
+	routedModels := make([]string, 0, len(seen))
+	for m := range seen {
+		routedModels = append(routedModels, m)
+	}
+
 	// Owner / SyncedFrom values intentionally inlined as string literals: the
 	// natural sources (model.ModelOwner* and synccommon.SyncedFrom*) live in
 	// packages that already depend on this one, so importing them here would
@@ -106,8 +140,9 @@ func migrateModelConfigSyncedFrom(db *gorm.DB) {
 	for _, u := range updates {
 		res := db.Exec(
 			"UPDATE model_configs SET synced_from = ? "+
-				"WHERE owner = ? AND (synced_from IS NULL OR synced_from = '')",
-			u.syncedFrom, u.owner,
+				"WHERE owner = ? AND (synced_from IS NULL OR synced_from = '') "+
+				"AND model IN ?",
+			u.syncedFrom, u.owner, routedModels,
 		)
 		if res.Error != nil {
 			log.Errorf("failed to backfill model_configs.synced_from for owner=%s: %v",

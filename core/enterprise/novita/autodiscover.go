@@ -29,19 +29,19 @@ func init() {
 // "My Access" model list.
 func onPassthroughFirstSuccess(
 	ctx context.Context,
-	_ int,
+	channelID int,
 	channelType model.ChannelType,
 	modelName string,
 ) {
 	switch channelType {
 	case model.ChannelTypeNovita:
 		_, _, _ = discoverGroup.Do(modelName, func() (any, error) {
-			doDiscoverChat(ctx, modelName)
+			doDiscoverChat(ctx, channelID, modelName)
 			return nil, nil
 		})
 	case model.ChannelTypeNovitaMultimodal:
 		_, _, _ = discoverGroup.Do(modelName, func() (any, error) {
-			doDiscoverMultimodal(ctx, modelName)
+			doDiscoverMultimodal(ctx, channelID, modelName)
 			return nil, nil
 		})
 	}
@@ -49,8 +49,12 @@ func onPassthroughFirstSuccess(
 
 // doDiscoverChat handles auto-discovery for Novita OpenAI-compatible channels.
 // Looks up the model in the V2 management API to get pricing and config.
-func doDiscoverChat(ctx context.Context, modelName string) {
+func doDiscoverChat(ctx context.Context, channelID int, modelName string) {
+	// If the model is already registered (manual/yaml/prior autodiscover), skip
+	// re-registration but still propagate to peer channels — fixes the case
+	// where a row pre-exists but channel.Models doesn't reflect it yet.
 	if modelExists(modelName) {
+		finalizeChatDiscovery(channelID, modelName, nil, "already-registered")
 		return
 	}
 
@@ -62,13 +66,13 @@ func doDiscoverChat(ctx context.Context, modelName string) {
 
 	cfg := GetNovitaConfig()
 	if cfg.MgmtToken == "" {
-		registerFallbackModel(modelName)
+		registerFallbackModel(channelID, modelName)
 		return
 	}
 
 	remoteModel := discoverV2Model(ctx, client, cfg.MgmtToken, modelName)
 	if remoteModel == nil {
-		registerFallbackModel(modelName)
+		registerFallbackModel(channelID, modelName)
 		return
 	}
 
@@ -77,30 +81,21 @@ func doDiscoverChat(ctx context.Context, modelName string) {
 		return
 	}
 
-	addModelToNovitaChannels(modelName, remoteModel)
-
-	if err := model.InitModelConfigAndChannelCache(); err != nil {
-		log.Printf(
-			"novita autodiscover: cache refresh failed after registering %s: %v",
-			modelName,
-			err,
-		)
-	}
-
-	log.Printf("novita autodiscover: registered model %s (V2 API)", modelName)
+	finalizeChatDiscovery(channelID, modelName, remoteModel, "V2 API")
 }
 
 // doDiscoverMultimodal handles auto-discovery for Novita native multimodal channels.
 // Fetches pricing from the multimodal console API, falls back to V2 management API.
-func doDiscoverMultimodal(ctx context.Context, modelName string) {
+func doDiscoverMultimodal(ctx context.Context, channelID int, modelName string) {
 	if modelExists(modelName) {
+		finalizeMultimodalDiscovery(channelID, modelName, "already-registered")
 		return
 	}
 
 	client, err := NewNovitaClient()
 	if err != nil {
 		log.Printf("novita autodiscover: client creation failed: %v", err)
-		registerMultimodalFallback(modelName)
+		registerMultimodalFallback(channelID, modelName)
 
 		return
 	}
@@ -135,7 +130,7 @@ func doDiscoverMultimodal(ctx context.Context, modelName string) {
 					return
 				}
 
-				finalizeMultimodalDiscovery(modelName, "V2 API")
+				finalizeMultimodalDiscovery(channelID, modelName, "V2 API")
 
 				return
 			}
@@ -164,7 +159,7 @@ func doDiscoverMultimodal(ctx context.Context, modelName string) {
 		return
 	}
 
-	finalizeMultimodalDiscovery(modelName, "multimodal API")
+	finalizeMultimodalDiscovery(channelID, modelName, "multimodal API")
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -280,7 +275,7 @@ func registerNovitaChatModel(
 //
 // SyncedFrom intentionally empty — autodiscover/fallback rows are not managed
 // by the regular sync. Admin must manually update pricing.
-func registerFallbackModel(modelName string) {
+func registerFallbackModel(channelID int, modelName string) {
 	mc := model.ModelConfig{
 		Model: modelName,
 		Owner: model.ModelOwnerNovita,
@@ -294,24 +289,14 @@ func registerFallbackModel(modelName string) {
 		return
 	}
 
-	addModelToFirstChannelByType(modelName, model.ChannelTypeNovita)
-
-	if err := model.InitModelConfigAndChannelCache(); err != nil {
-		log.Printf(
-			"novita autodiscover: cache refresh failed after registering %s: %v",
-			modelName,
-			err,
-		)
-	}
-
-	log.Printf("novita autodiscover: registered model %s (fallback, zero-cost)", modelName)
+	finalizeChatDiscovery(channelID, modelName, nil, "fallback, zero-cost")
 }
 
 // registerMultimodalFallback creates a zero-cost multimodal ModelConfig entry.
 //
 // SyncedFrom intentionally empty — autodiscover/fallback rows are not managed
 // by the regular sync.
-func registerMultimodalFallback(modelName string) {
+func registerMultimodalFallback(channelID int, modelName string) {
 	mc := model.ModelConfig{
 		Model: modelName,
 		Owner: model.ModelOwnerNovita,
@@ -330,70 +315,110 @@ func registerMultimodalFallback(modelName string) {
 		return
 	}
 
-	finalizeMultimodalDiscovery(modelName, "fallback")
+	finalizeMultimodalDiscovery(channelID, modelName, "fallback")
 }
 
-// addModelToNovitaChannels adds a model to the appropriate Novita channels
-// (OpenAI and optionally Anthropic) based on its endpoint configuration.
-func addModelToNovitaChannels(modelName string, remoteModel *NovitaModelV2) {
-	addModelToFirstChannelByType(modelName, model.ChannelTypeNovita)
-
-	if remoteModel != nil && slices.Contains(remoteModel.Endpoints, "anthropic") {
-		addModelToAnthropicChannel(modelName)
-	}
-}
-
-// addModelToFirstChannelByType adds a model to the first channel of the given type.
-// Silently returns if no such channel exists or the model is already present.
-func addModelToFirstChannelByType(modelName string, channelType model.ChannelType) {
-	var ch model.Channel
-	if err := model.DB.Where("type = ?", channelType).First(&ch).Error; err != nil {
-		return
-	}
-
-	if slices.Contains(ch.Models, modelName) {
-		return
-	}
-
-	ch.Models = append(ch.Models, modelName)
-
-	if err := model.DB.Save(&ch).Error; err != nil {
+// finalizeChatDiscovery propagates the model to all peer Novita chat channels
+// in the same set as the origin channel — and to peer Anthropic-protocol
+// channels when the upstream model declares the anthropic endpoint. Refreshes
+// the cache. Called after successful model registration (or for already-
+// registered rows so channel.Models gets caught up).
+func finalizeChatDiscovery(
+	channelID int,
+	modelName string,
+	remoteModel *NovitaModelV2,
+	source string,
+) {
+	if err := synccommon.AddModelToPeerChannels(
+		model.DB,
+		channelID,
+		model.ChannelTypeNovita,
+		modelName,
+	); err != nil {
 		log.Printf(
-			"novita autodiscover: failed to add %s to channel type %d: %v",
+			"novita autodiscover: failed to propagate %s to peer chat channels: %v",
 			modelName,
-			channelType,
 			err,
 		)
 	}
+
+	if remoteModel != nil && slices.Contains(remoteModel.Endpoints, "anthropic") {
+		addModelToAnthropicChannel(channelID, modelName)
+	}
+
+	if err := model.InitModelConfigAndChannelCache(); err != nil {
+		log.Printf(
+			"novita autodiscover: cache refresh failed after registering %s: %v",
+			modelName,
+			err,
+		)
+	}
+
+	log.Printf("novita autodiscover: registered model %s (%s)", modelName, source)
 }
 
-// addModelToAnthropicChannel adds a model to the first Novita Anthropic channel.
-// Uses novitaChannelWhere because Anthropic channels share ChannelTypeAnthropic
-// with non-Novita channels, so we filter by base_url as well.
-func addModelToAnthropicChannel(modelName string) {
+// addModelToAnthropicChannel adds modelName to all Novita Anthropic channels
+// that share at least one Set with originChannelID. Anthropic channels share
+// ChannelTypeAnthropic with non-Novita channels, so we filter by base_url.
+func addModelToAnthropicChannel(originChannelID int, modelName string) {
+	var origin model.Channel
+	if err := model.DB.Select("id, sets").First(&origin, originChannelID).Error; err != nil {
+		log.Printf(
+			"novita autodiscover: read origin channel %d for anthropic peer fan-out: %v",
+			originChannelID,
+			err,
+		)
+
+		return
+	}
+
+	originSets := origin.GetSets()
+
 	var channels []model.Channel
 	if err := model.DB.Where(novitaChannelWhere(), novitaChannelArgs()...).
-		Where("type = ?", model.ChannelTypeAnthropic).
-		Find(&channels).Error; err != nil || len(channels) == 0 {
+		Where("type = ? AND status = ?", model.ChannelTypeAnthropic, 1).
+		Find(&channels).Error; err != nil {
 		return
 	}
 
-	ch := &channels[0]
-	if slices.Contains(ch.Models, modelName) {
-		return
-	}
+	for i := range channels {
+		if !synccommon.SetsIntersect(originSets, channels[i].GetSets()) {
+			continue
+		}
 
-	ch.Models = append(ch.Models, modelName)
+		if slices.Contains(channels[i].Models, modelName) {
+			continue
+		}
 
-	if err := model.DB.Save(ch).Error; err != nil {
-		log.Printf("novita autodiscover: failed to add %s to Anthropic channel: %v", modelName, err)
+		channels[i].Models = append(channels[i].Models, modelName)
+		if err := model.DB.Save(&channels[i]).Error; err != nil {
+			log.Printf(
+				"novita autodiscover: failed to add %s to Anthropic channel %d: %v",
+				modelName,
+				channels[i].ID,
+				err,
+			)
+		}
 	}
 }
 
-// finalizeMultimodalDiscovery adds the model to the multimodal channel and
-// refreshes the cache. Called after successful model registration.
-func finalizeMultimodalDiscovery(modelName, source string) {
-	addModelToFirstChannelByType(modelName, model.ChannelTypeNovitaMultimodal)
+// finalizeMultimodalDiscovery propagates the model to all peer Novita
+// multimodal channels in the same set as the origin channel and refreshes the
+// cache. Called after successful model registration (or when a pre-existing
+// row was reused).
+func finalizeMultimodalDiscovery(channelID int, modelName, source string) {
+	if err := synccommon.AddModelToPeerChannels(
+		model.DB,
+		channelID,
+		model.ChannelTypeNovitaMultimodal,
+		modelName,
+	); err != nil {
+		log.Printf(
+			"novita autodiscover: failed to propagate %s to peer multimodal channels: %v",
+			modelName,
+			err,
+		)
+	}
 
 	if err := model.InitModelConfigAndChannelCache(); err != nil {
 		log.Printf(

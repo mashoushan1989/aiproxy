@@ -5,7 +5,6 @@ package ppio
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/labring/aiproxy/core/controller"
 	"github.com/labring/aiproxy/core/enterprise/synccommon"
@@ -30,7 +29,7 @@ func init() {
 // appears in users' "My Access" model list.
 func onPassthroughFirstSuccess(
 	ctx context.Context,
-	_ int,
+	channelID int,
 	channelType model.ChannelType,
 	modelName string,
 ) {
@@ -39,14 +38,17 @@ func onPassthroughFirstSuccess(
 	}
 
 	_, _, _ = discoverGroup.Do(modelName, func() (any, error) {
-		doDiscover(ctx, modelName)
+		doDiscover(ctx, channelID, modelName)
 		return nil, nil
 	})
 }
 
-func doDiscover(ctx context.Context, modelName string) {
-	// Guard: skip if the model was already registered between the relay
-	// response and this goroutine being scheduled.
+func doDiscover(ctx context.Context, channelID int, modelName string) {
+	// Guard: if the model was already registered (manual admin entry, prior
+	// autodiscover, or yaml overlay), skip the registration step but still
+	// run finalize so channel.Models is brought in line with the request that
+	// just succeeded — fixes the case where a row pre-exists but its peers
+	// don't have it in their Models list.
 	var count int64
 	if err := model.DB.Model(&model.ModelConfig{}).
 		Where("model = ?", modelName).
@@ -56,6 +58,7 @@ func doDiscover(ctx context.Context, modelName string) {
 	}
 
 	if count > 0 {
+		finalizeDiscovery(channelID, modelName, "already-registered")
 		return
 	}
 
@@ -82,7 +85,7 @@ func doDiscover(ctx context.Context, modelName string) {
 						return
 					}
 
-					finalizeDiscovery(modelName, "V2 API")
+					finalizeDiscovery(channelID, modelName, "V2 API")
 
 					return
 				}
@@ -112,13 +115,25 @@ func doDiscover(ctx context.Context, modelName string) {
 		return
 	}
 
-	finalizeDiscovery(modelName, fmt.Sprintf("per_request_price=%.4f", perRequestPrice))
+	finalizeDiscovery(channelID, modelName, fmt.Sprintf("per_request_price=%.4f", perRequestPrice))
 }
 
-// finalizeDiscovery adds the model to the multimodal channel and refreshes the
-// cache. Called after successful model registration in doDiscover.
-func finalizeDiscovery(modelName, source string) {
-	addModelToMultimodalChannel(modelName)
+// finalizeDiscovery propagates the model to all peer multimodal channels in
+// the same set as the origin channel and refreshes the cache. Called after
+// successful model registration (or when a pre-existing row was reused).
+func finalizeDiscovery(originChannelID int, modelName, source string) {
+	if err := synccommon.AddModelToPeerChannels(
+		model.DB,
+		originChannelID,
+		model.ChannelTypePPIOMultimodal,
+		modelName,
+	); err != nil {
+		log.Printf(
+			"ppio autodiscover: failed to propagate %s to peer channels: %v",
+			modelName,
+			err,
+		)
+	}
 
 	if err := model.InitModelConfigAndChannelCache(); err != nil {
 		log.Printf(
@@ -223,27 +238,4 @@ func registerPPIONativeModel(modelName string, remoteModel *PPIOModelV2) error {
 	}
 
 	return model.OnConflictDoNothing().Create(&mc).Error
-}
-
-// addModelToMultimodalChannel adds a model to the first PPIO multimodal
-// channel's model list. This fixes a bug where auto-discovered models were
-// registered in ModelConfig but never added to the channel, making them
-// invisible to the routing system until the next daily sync.
-func addModelToMultimodalChannel(modelName string) {
-	var ch model.Channel
-	if err := model.DB.Where("type = ?", model.ChannelTypePPIOMultimodal).
-		First(&ch).
-		Error; err != nil {
-		return
-	}
-
-	if slices.Contains(ch.Models, modelName) {
-		return
-	}
-
-	ch.Models = append(ch.Models, modelName)
-
-	if err := model.DB.Save(&ch).Error; err != nil {
-		log.Printf("ppio autodiscover: failed to add %s to multimodal channel: %v", modelName, err)
-	}
 }

@@ -42,7 +42,7 @@ type ModelConfig struct {
 	// in the upstream listing. Only incremented for rows the running sync owns
 	// (SyncedFrom == thisSync). Used to drop transiently-missing models from
 	// channel.Models after a configurable threshold (see SyncMissingThreshold).
-	MissingCount     int       `json:"missing_count,omitempty"      yaml:"-"`
+	MissingCount     int       `gorm:"default:0;not null"           json:"missing_count,omitempty"      yaml:"-"`
 	Type             mode.Mode `json:"type"                         yaml:"type,omitempty"`
 	ExcludeFromTests bool      `json:"exclude_from_tests,omitempty" yaml:"exclude_from_tests,omitempty"`
 	RPM              int64     `json:"rpm,omitempty"                yaml:"rpm,omitempty"`
