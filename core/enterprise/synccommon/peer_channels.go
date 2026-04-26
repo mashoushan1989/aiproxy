@@ -57,7 +57,7 @@ func AddModelToPeerChannels(
 			continue
 		}
 
-		newModels := append(slices.Clone(peers[i].Models), modelName)
+		newModels := append(peers[i].Models, modelName)
 
 		if err := db.Model(&model.Channel{}).
 			Where("id = ?", peers[i].ID).

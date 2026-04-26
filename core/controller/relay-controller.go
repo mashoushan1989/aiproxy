@@ -72,30 +72,17 @@ func RegisterPassthroughSuccessHook(
 }
 
 // shouldFireAutodiscover decides whether a successful passthrough-unknown
-// response should trigger the autodiscover hook chain. Two trigger cases:
+// response should trigger the autodiscover hook chain.
 //
-//  1. ModelConfig.Type == Unknown — there is no model_configs row yet, so
-//     the relay synthesised a default config. autodiscover registers pricing
-//     and seeds channel.Models.
-//
+//  1. ModelConfig.Type == Unknown — no model_configs row exists; relay
+//     synthesised a default config. Hook seeds pricing AND channel.Models.
 //  2. model_configs exists but the model is absent from every channel.Models
-//     in any of the request's available sets. This catches half-installed
-//     rows (admin inserted model_configs but forgot the channel.Models entry)
-//     and lets autodiscover's finalize path bring channel.Models back in
-//     sync via AddModelToPeerChannels.
-//
-// Without case (2), a manually-added row's channel.Models would never get
-// repaired automatically, leaving the model invisible in /v1/models even
-// though it works via passthrough.
+//     in any of the request's available sets — admin half-installed the row
+//     (model_configs added but channel.Models forgotten). Hook's finalize
+//     path re-syncs channel.Models so the row becomes visible in /v1/models.
 func shouldFireAutodiscover(meta *meta.Meta, caches *model.ModelCaches) bool {
 	if meta.ModelConfig.Type == unknownMode {
 		return true
-	}
-
-	if caches == nil {
-		// Defensive: without the cache we can't tell if channel.Models has
-		// the row. Skip — better than firing on every passthrough request.
-		return false
 	}
 
 	for _, set := range meta.Group.GetAvailableSets() {

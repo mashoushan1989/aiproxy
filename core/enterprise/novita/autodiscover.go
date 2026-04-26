@@ -401,7 +401,7 @@ func addModelToAnthropicChannel(originChannelID int, modelName string) {
 			continue
 		}
 
-		newModels := append(slices.Clone(channels[i].Models), modelName)
+		newModels := append(channels[i].Models, modelName)
 
 		if err := model.DB.Model(&model.Channel{}).
 			Where("id = ?", channels[i].ID).

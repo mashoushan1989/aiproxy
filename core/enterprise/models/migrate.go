@@ -82,10 +82,10 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
-// channelModels is a narrow projection of channels.models used only by the
-// synced_from backfill below. Declared as a named type (not anonymous) so
-// GORM's `serializer:fastjson` tag is reliably picked up on Scan — anonymous
-// struct fields can be skipped by the GORM tag scanner in some versions.
+// channelModels is a one-shot projection of channels.models used by the
+// synced_from backfill below. Named so GORM's `serializer:fastjson` tag is
+// reliably recognized on Scan — the tag scanner is more predictable on
+// declared types than on anonymous-struct fields.
 type channelModels struct {
 	Models []string `gorm:"serializer:fastjson;type:text"`
 }
