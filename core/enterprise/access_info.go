@@ -386,21 +386,28 @@ func GetMyAccess(c *gin.Context) {
 				continue
 			}
 
-			owner := chs[0].Type.String()
-			key := modelOwnerPair{model: modelName, owner: owner}
-			if _, exists := modelOwnerSeen[key]; exists {
-				continue
-			}
+			// Every unique channel type becomes its own owner group so a model
+			// available via multiple channels (e.g. PPIO OpenAI + PPIO Anthropic)
+			// appears in each section, not only the highest-priority channel's
+			// section. Without this loop the lower-priority channel type would
+			// be invisible on the my-access page.
+			for _, ch := range chs {
+				owner := ch.Type.String()
+				key := modelOwnerPair{model: modelName, owner: owner}
+				if _, exists := modelOwnerSeen[key]; exists {
+					continue
+				}
 
-			modelOwnerSeen[key] = struct{}{}
-			modelOwners[modelName] = append(modelOwners[modelName], owner)
+				modelOwnerSeen[key] = struct{}{}
+				modelOwners[modelName] = append(modelOwners[modelName], owner)
 
-			if _, exists := ownerPrimarySet[owner]; !exists {
-				ownerPrimarySet[owner] = set
-			}
+				if _, exists := ownerPrimarySet[owner]; !exists {
+					ownerPrimarySet[owner] = set
+				}
 
-			if _, exists := ownerDisplayName[owner]; !exists && chs[0].Name != "" {
-				ownerDisplayName[owner] = chs[0].Name
+				if _, exists := ownerDisplayName[owner]; !exists && ch.Name != "" {
+					ownerDisplayName[owner] = ch.Name
+				}
 			}
 		}
 	}
