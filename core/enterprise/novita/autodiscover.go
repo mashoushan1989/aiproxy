@@ -50,23 +50,16 @@ func onPassthroughFirstSuccess(
 // doDiscoverChat handles auto-discovery for Novita OpenAI-compatible channels.
 // Looks up the model in the V2 management API to get pricing and config.
 func doDiscoverChat(ctx context.Context, channelID int, modelName string) {
-	// PLEASE READ before changing this branch (and the multimodal mirror below):
+	// Pre-existing row path: the relay hook also fires when model_configs has
+	// the row but the model is missing from channel.Models in the request set
+	// (see shouldFireAutodiscover in relay-controller.go). finalize will
+	// idempotently add the model to peer channels so the half-installed row
+	// becomes visible in /v1/models.
 	//
-	// This path is currently UNREACHABLE — the hook only fires when
-	// meta.ModelConfig.Type == unknownMode (relay-controller.go:304), which
-	// requires the row not to exist yet. By the time modelExists() is true the
-	// hook would already have skipped us.
-	//
-	// The finalizeChatDiscovery call would propagate the model into
-	// channel.Models of all peer channels in the same set. That is
-	// INTENTIONALLY suppressed: hand-mapped alias rows kept ONLY in
-	// channel.model_mapping (e.g. claude-opus-4-6 -> pa/claude-opus-4-6) MUST
-	// stay out of channel.Models so they don't appear in /v1/models — they're
-	// typo-tolerance fallbacks, not first-class entries.
-	//
-	// If a future change makes the hook fire for already-registered rows, you
-	// MUST re-evaluate whether propagation matches the alias design contract.
-	// The conservative replacement is `return` only.
+	// Typo-alias rows (claude-opus-4-6 → pa/claude-opus-4-6) route through
+	// Anthropic channels (type 14), and Novita's hook above filters by
+	// ChannelTypeNovita / ChannelTypeNovitaMultimodal, so those aliases never
+	// reach this branch and stay out of /v1/models per the design contract.
 	if modelExists(modelName) {
 		finalizeChatDiscovery(channelID, modelName, nil, "already-registered")
 		return
@@ -101,9 +94,7 @@ func doDiscoverChat(ctx context.Context, channelID int, modelName string) {
 // doDiscoverMultimodal handles auto-discovery for Novita native multimodal channels.
 // Fetches pricing from the multimodal console API, falls back to V2 management API.
 func doDiscoverMultimodal(ctx context.Context, channelID int, modelName string) {
-	// PLEASE READ: this path is unreachable today — see the chat doDiscoverChat
-	// guardrail comment for the design contract. Keep `return` semantics here
-	// if propagation logic is removed elsewhere.
+	// Pre-existing row path — same semantics as doDiscoverChat above.
 	if modelExists(modelName) {
 		finalizeMultimodalDiscovery(channelID, modelName, "already-registered")
 		return

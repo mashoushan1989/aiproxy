@@ -71,6 +71,42 @@ func RegisterPassthroughSuccessHook(
 	passthroughSuccessHooks = append(passthroughSuccessHooks, fn)
 }
 
+// shouldFireAutodiscover decides whether a successful passthrough-unknown
+// response should trigger the autodiscover hook chain. Two trigger cases:
+//
+//  1. ModelConfig.Type == Unknown — there is no model_configs row yet, so
+//     the relay synthesised a default config. autodiscover registers pricing
+//     and seeds channel.Models.
+//
+//  2. model_configs exists but the model is absent from every channel.Models
+//     in any of the request's available sets. This catches half-installed
+//     rows (admin inserted model_configs but forgot the channel.Models entry)
+//     and lets autodiscover's finalize path bring channel.Models back in
+//     sync via AddModelToPeerChannels.
+//
+// Without case (2), a manually-added row's channel.Models would never get
+// repaired automatically, leaving the model invisible in /v1/models even
+// though it works via passthrough.
+func shouldFireAutodiscover(meta *meta.Meta, caches *model.ModelCaches) bool {
+	if meta.ModelConfig.Type == unknownMode {
+		return true
+	}
+
+	if caches == nil {
+		// Defensive: without the cache we can't tell if channel.Models has
+		// the row. Skip — better than firing on every passthrough request.
+		return false
+	}
+
+	for _, set := range meta.Group.GetAvailableSets() {
+		if len(caches.EnabledModel2ChannelsBySet[set][meta.OriginModel]) > 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
 var adaptorStore adaptor.Store = &storeImpl{}
 
 type storeImpl struct{}
@@ -296,12 +332,19 @@ func relay(c *gin.Context, mode mode.Mode, relayController RelayController) {
 	// First attempt
 	result, retry := RelayHelper(c, meta, relayController.Handler)
 
-	// Auto-discovery: when a passthrough-unknown model succeeds for the first
-	// time, fire the hook in a background goroutine so the caller receives the
-	// response without waiting for model registration to complete.
+	// Auto-discovery: fire the hook in a background goroutine so the caller
+	// receives the response without waiting for model registration. Two cases
+	// trigger:
+	//   1. Type==Unknown — no model_configs row exists; first-time autodiscover
+	//      should register pricing AND add the model to channel.Models.
+	//   2. model_configs row exists but the model is missing from every
+	//      channel.Models in the request's available sets — admin previously
+	//      added the row but forgot to populate channel.Models, OR the channel
+	//      had been depopulated and now needs to be caught up. In both cases,
+	//      autodiscover's finalize path will idempotently re-add it.
 	if result.Error == nil &&
 		meta.ChannelConfigs.GetBool(model.ChannelConfigAllowPassthroughUnknown) &&
-		meta.ModelConfig.Type == unknownMode {
+		shouldFireAutodiscover(meta, middleware.GetModelCaches(c)) {
 		for _, h := range passthroughSuccessHooks {
 			go h(context.Background(), meta.Channel.ID, meta.Channel.Type, meta.OriginModel)
 		}
