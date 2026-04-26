@@ -50,9 +50,23 @@ func onPassthroughFirstSuccess(
 // doDiscoverChat handles auto-discovery for Novita OpenAI-compatible channels.
 // Looks up the model in the V2 management API to get pricing and config.
 func doDiscoverChat(ctx context.Context, channelID int, modelName string) {
-	// If the model is already registered (manual/yaml/prior autodiscover), skip
-	// re-registration but still propagate to peer channels — fixes the case
-	// where a row pre-exists but channel.Models doesn't reflect it yet.
+	// PLEASE READ before changing this branch (and the multimodal mirror below):
+	//
+	// This path is currently UNREACHABLE — the hook only fires when
+	// meta.ModelConfig.Type == unknownMode (relay-controller.go:304), which
+	// requires the row not to exist yet. By the time modelExists() is true the
+	// hook would already have skipped us.
+	//
+	// The finalizeChatDiscovery call would propagate the model into
+	// channel.Models of all peer channels in the same set. That is
+	// INTENTIONALLY suppressed: hand-mapped alias rows kept ONLY in
+	// channel.model_mapping (e.g. claude-opus-4-6 -> pa/claude-opus-4-6) MUST
+	// stay out of channel.Models so they don't appear in /v1/models — they're
+	// typo-tolerance fallbacks, not first-class entries.
+	//
+	// If a future change makes the hook fire for already-registered rows, you
+	// MUST re-evaluate whether propagation matches the alias design contract.
+	// The conservative replacement is `return` only.
 	if modelExists(modelName) {
 		finalizeChatDiscovery(channelID, modelName, nil, "already-registered")
 		return
@@ -87,6 +101,9 @@ func doDiscoverChat(ctx context.Context, channelID int, modelName string) {
 // doDiscoverMultimodal handles auto-discovery for Novita native multimodal channels.
 // Fetches pricing from the multimodal console API, falls back to V2 management API.
 func doDiscoverMultimodal(ctx context.Context, channelID int, modelName string) {
+	// PLEASE READ: this path is unreachable today — see the chat doDiscoverChat
+	// guardrail comment for the design contract. Keep `return` semantics here
+	// if propagation logic is removed elsewhere.
 	if modelExists(modelName) {
 		finalizeMultimodalDiscovery(channelID, modelName, "already-registered")
 		return

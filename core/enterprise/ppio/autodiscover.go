@@ -57,6 +57,24 @@ func doDiscover(ctx context.Context, channelID int, modelName string) {
 		return
 	}
 
+	// PLEASE READ before changing this branch:
+	//
+	// This path is currently UNREACHABLE because the autodiscover hook only
+	// fires when meta.ModelConfig.Type == unknownMode (relay-controller.go:304),
+	// which only happens for models with no model_configs row. By the time we
+	// reach here, the row already exists, so the hook never invokes us with a
+	// pre-existing row.
+	//
+	// The finalizeDiscovery call would propagate the model into channel.Models
+	// of all peer channels in the same set. That is INTENTIONALLY suppressed:
+	// hand-mapped alias rows (e.g. claude-opus-4-6 -> pa/claude-opus-4-6 via
+	// channel.model_mapping) are kept OUT of channel.Models on purpose so they
+	// do NOT appear in /v1/models — they exist as a typo-tolerance fallback,
+	// not as a recommended access path.
+	//
+	// If a future change makes the hook fire for already-registered rows, you
+	// MUST re-evaluate whether propagating them into channel.Models matches the
+	// alias design contract. The conservative replacement is `return` only.
 	if count > 0 {
 		finalizeDiscovery(channelID, modelName, "already-registered")
 		return
