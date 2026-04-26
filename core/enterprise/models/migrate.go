@@ -82,6 +82,14 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
+// channelModels is a narrow projection of channels.models used only by the
+// synced_from backfill below. Declared as a named type (not anonymous) so
+// GORM's `serializer:fastjson` tag is reliably picked up on Scan — anonymous
+// struct fields can be skipped by the GORM tag scanner in some versions.
+type channelModels struct {
+	Models []string `gorm:"serializer:fastjson;type:text"`
+}
+
 // migrateModelConfigSyncedFrom assigns the synced_from tag to rows that
 // pre-date the field. Strategy: rows with owner='ppio'/'novita' AND whose
 // model name appears in some active channel.Models are claimed by the
@@ -96,14 +104,17 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 func migrateModelConfigSyncedFrom(db *gorm.DB) {
 	// Build the set of models actually referenced by an active channel.
 	// We only need the Models field; selecting that column keeps the read cheap.
-	var channels []struct {
-		Models []string `gorm:"serializer:fastjson;type:text"`
-	}
+	var channels []channelModels
 	if err := db.Table("channels").
 		Where("status = ?", 1).
 		Select("models").
 		Scan(&channels).Error; err != nil {
 		log.Errorf("failed to read channels for synced_from backfill: %v", err)
+		return
+	}
+
+	if len(channels) == 0 {
+		// First-time install with no channels yet — nothing routable to claim.
 		return
 	}
 
@@ -114,8 +125,16 @@ func migrateModelConfigSyncedFrom(db *gorm.DB) {
 		}
 	}
 
+	// Surface enough info for ops to verify the projection worked. If channels
+	// existed but Models was empty (fastjson misread), we'd skip the UPDATE
+	// silently — this log makes the case observable.
+	log.Infof(
+		"synced_from backfill: %d active channels, %d distinct routed models",
+		len(channels),
+		len(seen),
+	)
+
 	if len(seen) == 0 {
-		// First-time install with no channels yet — nothing routable to claim.
 		return
 	}
 

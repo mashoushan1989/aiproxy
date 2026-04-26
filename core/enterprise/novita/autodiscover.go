@@ -391,9 +391,12 @@ func addModelToAnthropicChannel(originChannelID int, modelName string) {
 
 	originSets := origin.GetSets()
 
+	// Select only the columns we need so the per-channel Update below is
+	// scoped and won't clobber concurrent writes to other Channel fields.
 	var channels []model.Channel
 	if err := model.DB.Where(novitaChannelWhere(), novitaChannelArgs()...).
 		Where("type = ? AND status = ?", model.ChannelTypeAnthropic, 1).
+		Select("id, sets, models").
 		Find(&channels).Error; err != nil {
 		return
 	}
@@ -407,8 +410,11 @@ func addModelToAnthropicChannel(originChannelID int, modelName string) {
 			continue
 		}
 
-		channels[i].Models = append(channels[i].Models, modelName)
-		if err := model.DB.Save(&channels[i]).Error; err != nil {
+		newModels := append(slices.Clone(channels[i].Models), modelName)
+
+		if err := model.DB.Model(&model.Channel{}).
+			Where("id = ?", channels[i].ID).
+			Update("models", newModels).Error; err != nil {
 			log.Printf(
 				"novita autodiscover: failed to add %s to Anthropic channel %d: %v",
 				modelName,

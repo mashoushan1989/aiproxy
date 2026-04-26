@@ -34,8 +34,15 @@ func AddModelToPeerChannels(
 
 	originSets := origin.GetSets()
 
+	// We only need id, sets and models from peers. Selecting these explicitly
+	// keeps the in-memory copy small AND — combined with the column-scoped
+	// Updates() below — avoids the read-modify-write race where a concurrent
+	// writer's edits to other columns (configs, status, key, etc.) would be
+	// clobbered by db.Save() blindly writing back the whole row.
 	var peers []model.Channel
-	if err := db.Where("type = ? AND status = ?", channelType, 1).Find(&peers).Error; err != nil {
+	if err := db.Select("id, sets, models").
+		Where("type = ? AND status = ?", channelType, 1).
+		Find(&peers).Error; err != nil {
 		return fmt.Errorf("find peer channels of type %d: %w", channelType, err)
 	}
 
@@ -50,8 +57,11 @@ func AddModelToPeerChannels(
 			continue
 		}
 
-		peers[i].Models = append(peers[i].Models, modelName)
-		if err := db.Save(&peers[i]).Error; err != nil && firstErr == nil {
+		newModels := append(slices.Clone(peers[i].Models), modelName)
+
+		if err := db.Model(&model.Channel{}).
+			Where("id = ?", peers[i].ID).
+			Update("models", newModels).Error; err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("save peer %d: %w", peers[i].ID, err)
 		}
 	}
