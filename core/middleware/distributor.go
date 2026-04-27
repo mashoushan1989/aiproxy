@@ -381,7 +381,7 @@ func distribute(c *gin.Context, mode mode.Mode) {
 	findModel := token.FindModel(requestModel)
 
 	caches := GetModelCaches(c)
-	hasPassthrough := caches.HasPassthroughChannels(group.GetAvailableSets())
+	hasPassthrough := hasUnknownPassthroughForMode(caches, group.GetAvailableSets(), mode)
 
 	if findModel == "" {
 		// Token whitelist explicitly blocks this model — hard 404.
