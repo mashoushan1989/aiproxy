@@ -1659,7 +1659,7 @@
       "setsPlaceholder": "输入分组名称并回车添加",
       "priority": "优先级",
       "priorityPlaceholder": "1-100，默认10",
-      "priorityHelp": "数值越小优先级越高，默认为10",
+      "priorityHelp": "数值越高优先级越高，实际优先级会根据错误率动态调整，默认为10",
       "useDefaultModels": "使用默认模型",
       "customModels": "自定义模型",
       "defaultModelsHint": "默认模型来自渠道类型配置，切换到自定义模型可覆盖",

@@ -1671,7 +1671,7 @@
       "setsPlaceholder": "Enter group name and press enter to add",
       "priority": "Priority",
       "priorityPlaceholder": "1-100, default 10",
-      "priorityHelp": "Lower value means higher priority, default is 10",
+      "priorityHelp": "Higher value means higher priority. Effective priority is dynamically adjusted by error rate. Default is 10",
       "useDefaultModels": "Use Default Models",
       "customModels": "Custom Models",
       "defaultModelsHint": "Default models from channel type config. Switch to custom to override.",
