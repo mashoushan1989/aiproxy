@@ -17,6 +17,7 @@ import (
 	"github.com/labring/aiproxy/core/enterprise/models"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
 
 func setupAccessInfoTestDB(t *testing.T) {
@@ -25,6 +26,7 @@ func setupAccessInfoTestDB(t *testing.T) {
 	prevDB := model.DB
 	prevLogDB := model.LogDB
 	prevUsingSQLite := common.UsingSQLite
+	prevRedisEnabled := common.RedisEnabled
 
 	testDB, err := model.OpenSQLite(filepath.Join(t.TempDir(), "enterprise-access-info.db"))
 	if err != nil {
@@ -39,9 +41,21 @@ func setupAccessInfoTestDB(t *testing.T) {
 		model.DB = prevDB
 		model.LogDB = prevLogDB
 		common.UsingSQLite = prevUsingSQLite
+		common.RedisEnabled = prevRedisEnabled
 	})
 
-	if err := testDB.AutoMigrate(&model.Log{}, &model.RequestDetail{}, &models.FeishuUser{}); err != nil {
+	common.RedisEnabled = false
+
+	if err := testDB.AutoMigrate(
+		&model.Log{},
+		&model.RequestDetail{},
+		&models.FeishuUser{},
+		&model.Group{},
+		&model.Token{},
+		&model.Channel{},
+		&model.ModelConfig{},
+		&model.GroupModelConfig{},
+	); err != nil {
 		t.Fatalf("failed to migrate test tables: %v", err)
 	}
 }
@@ -135,6 +149,97 @@ func decodeData[T any](t *testing.T, recorder *httptest.ResponseRecorder) T {
 	}
 
 	return envelope.Data
+}
+
+func TestGetMyAccess_GroupsSameTypeChannelsByChannelInstance(t *testing.T) {
+	setupAccessInfoTestDB(t)
+
+	const groupID = "group-a"
+	const modelName = "shared-chat-model"
+
+	if err := model.DB.Create(&model.Group{
+		ID:     groupID,
+		Name:   "Group A",
+		Status: model.GroupStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("failed to create group: %v", err)
+	}
+
+	if err := model.DB.Create(&model.Token{
+		GroupID: groupID,
+		Name:    model.EmptyNullString("token-a"),
+		Status:  model.TokenStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	if err := model.DB.Create(&model.ModelConfig{
+		Model: modelName,
+		Owner: "ppio",
+		Type:  mode.ChatCompletions,
+	}).Error; err != nil {
+		t.Fatalf("failed to create model config: %v", err)
+	}
+
+	channels := []model.Channel{
+		{
+			Name:   "PPIO Primary",
+			Type:   model.ChannelTypePPIO,
+			Status: model.ChannelStatusEnabled,
+			Models: []string{modelName},
+			Sets:   []string{model.ChannelDefaultSet},
+		},
+		{
+			Name:   "PPIO Backup",
+			Type:   model.ChannelTypePPIO,
+			Status: model.ChannelStatusEnabled,
+			Models: []string{modelName},
+			Sets:   []string{model.ChannelDefaultSet},
+		},
+	}
+	if err := model.DB.Create(&channels).Error; err != nil {
+		t.Fatalf("failed to create channels: %v", err)
+	}
+
+	if err := model.InitModelConfigAndChannelCache(); err != nil {
+		t.Fatalf("failed to initialize model/channel cache: %v", err)
+	}
+
+	c, recorder := makeEnterpriseContext(t, "", &models.FeishuUser{OpenID: "ou_test", GroupID: groupID, Status: 1})
+	GetMyAccess(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	result := decodeData[MyAccessResponse](t, recorder)
+	if len(result.ModelGroups) != 2 {
+		t.Fatalf("expected two channel groups for same-type channels, got %d: %+v", len(result.ModelGroups), result.ModelGroups)
+	}
+
+	displayNames := make(map[string]int, len(result.ModelGroups))
+	owners := make(map[string]struct{}, len(result.ModelGroups))
+
+	for _, group := range result.ModelGroups {
+		if group.Owner == model.ChannelTypePPIO.String() {
+			t.Fatalf("expected channel instance owner key, got legacy type owner %q", group.Owner)
+		}
+
+		owners[group.Owner] = struct{}{}
+		displayNames[group.DisplayName]++
+
+		if len(group.Models) != 1 || group.Models[0].Model != modelName {
+			t.Fatalf("unexpected models for group %q: %+v", group.DisplayName, group.Models)
+		}
+	}
+
+	if len(owners) != 2 {
+		t.Fatalf("expected distinct owner keys, got %v", owners)
+	}
+
+	if displayNames["PPIO Primary"] != 1 || displayNames["PPIO Backup"] != 1 {
+		t.Fatalf("expected both channel names as display groups, got %v", displayNames)
+	}
 }
 
 func TestGetMyLogs_RequiresEnterpriseUser(t *testing.T) {

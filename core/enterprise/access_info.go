@@ -42,7 +42,7 @@ type ModelAccessInfo struct {
 	OutputPrice        float64  `json:"output_price"`
 	PriceUnit          int64    `json:"price_unit"`
 	SupportedEndpoints []string `json:"supported_endpoints"`
-	MaxContext          int64    `json:"max_context,omitempty"`
+	MaxContext         int64    `json:"max_context,omitempty"`
 	MaxOutput          int64    `json:"max_output,omitempty"`
 }
 
@@ -270,6 +270,25 @@ func allEnabledSetsDefaultFirst(modelsBySet map[string][]string) []string {
 	return sets
 }
 
+func channelOwnerKey(ch *model.Channel) string {
+	if ch == nil {
+		return "other"
+	}
+	if ch.ID != 0 {
+		return fmt.Sprintf("channel:%d", ch.ID)
+	}
+
+	typeName := ch.Type.String()
+	switch {
+	case ch.Name != "":
+		return fmt.Sprintf("channel:%s:%s", typeName, ch.Name)
+	case ch.BaseURL != "":
+		return fmt.Sprintf("channel:%s:%s", typeName, ch.BaseURL)
+	default:
+		return typeName
+	}
+}
+
 // GetMyAccess returns the user's access info including tokens and available models.
 func GetMyAccess(c *gin.Context) {
 	feishuUser := GetEnterpriseUser(c)
@@ -377,6 +396,7 @@ func GetMyAccess(c *gin.Context) {
 	modelOwners := make(map[string][]string, len(availableModels)) // model → distinct owners
 	ownerDisplayName := make(map[string]string)
 	ownerPrimarySet := make(map[string]string)
+	ownerTypeName := make(map[string]string)
 
 	for _, set := range groupSets {
 		chMap := modelCaches.EnabledModel2ChannelsBySet[set]
@@ -386,13 +406,11 @@ func GetMyAccess(c *gin.Context) {
 				continue
 			}
 
-			// Every unique channel type becomes its own owner group so a model
-			// available via multiple channels (e.g. PPIO OpenAI + PPIO Anthropic)
-			// appears in each section, not only the highest-priority channel's
-			// section. Without this loop the lower-priority channel type would
-			// be invisible on the my-access page.
+			// Every unique channel instance becomes its own owner group so
+			// multiple enabled channels with the same type are not collapsed
+			// into one visible section.
 			for _, ch := range chs {
-				owner := ch.Type.String()
+				owner := channelOwnerKey(ch)
 				key := modelOwnerPair{model: modelName, owner: owner}
 				if _, exists := modelOwnerSeen[key]; exists {
 					continue
@@ -405,8 +423,16 @@ func GetMyAccess(c *gin.Context) {
 					ownerPrimarySet[owner] = set
 				}
 
-				if _, exists := ownerDisplayName[owner]; !exists && ch.Name != "" {
-					ownerDisplayName[owner] = ch.Name
+				if _, exists := ownerTypeName[owner]; !exists {
+					ownerTypeName[owner] = ch.Type.String()
+				}
+
+				if _, exists := ownerDisplayName[owner]; !exists {
+					if ch.Name != "" {
+						ownerDisplayName[owner] = ch.Name
+					} else {
+						ownerDisplayName[owner] = ch.Type.String()
+					}
 				}
 			}
 		}
@@ -460,7 +486,7 @@ func GetMyAccess(c *gin.Context) {
 			OutputPrice:        outputPrice,
 			PriceUnit:          priceUnit,
 			SupportedEndpoints: getModelSupportedEndpoints(mc),
-			MaxContext:          int64(maxCtx),
+			MaxContext:         int64(maxCtx),
 			MaxOutput:          int64(maxOut),
 		}
 
@@ -504,14 +530,25 @@ func GetMyAccess(c *gin.Context) {
 
 	setURLs := loadSetBaseURLs()
 
-	// Clone ownerURLs to avoid mutating the shared sync.OnceValue cache,
-	// then auto-derive owner URLs from set mapping when not explicitly configured.
-	ownerURLs := make(map[string]string, len(ownerPrimarySet))
-	for k, v := range loadOwnerBaseURLs() {
-		ownerURLs[k] = v
-	}
-	for owner, set := range ownerPrimarySet {
-		if _, exists := ownerURLs[owner]; !exists {
+	// Preserve explicit URLs keyed by either the channel-instance owner key or
+	// the legacy channel type key, then auto-derive from set mapping.
+	explicitOwnerURLs := loadOwnerBaseURLs()
+	ownerURLs := make(map[string]string, len(owners))
+
+	for _, owner := range owners {
+		if url, exists := explicitOwnerURLs[owner]; exists {
+			ownerURLs[owner] = url
+			continue
+		}
+
+		if typeName := ownerTypeName[owner]; typeName != "" {
+			if url, exists := explicitOwnerURLs[typeName]; exists {
+				ownerURLs[owner] = url
+				continue
+			}
+		}
+
+		if set := ownerPrimarySet[owner]; set != "" {
 			if url, ok := setURLs[set]; ok {
 				ownerURLs[owner] = url
 			}
@@ -589,15 +626,15 @@ type ModelUsage struct {
 
 // MyUsageStats holds the aggregated usage stats for the current user.
 type MyUsageStats struct {
-	TotalAmount   float64          `json:"total_amount"`
-	TotalTokens   int64            `json:"total_tokens"`
-	TotalRequests int64            `json:"total_requests"`
-	UniqueModels  int              `json:"unique_models"`
-	AvgCostPerReq float64          `json:"avg_cost_per_req"`
-	SuccessRate   float64          `json:"success_rate"`
-	AvgResponseMs float64          `json:"avg_response_ms"`
-	AvgTtfbMs     float64          `json:"avg_ttfb_ms"`
-	TopModels     []ModelUsage     `json:"top_models"`
+	TotalAmount   float64           `json:"total_amount"`
+	TotalTokens   int64             `json:"total_tokens"`
+	TotalRequests int64             `json:"total_requests"`
+	UniqueModels  int               `json:"unique_models"`
+	AvgCostPerReq float64           `json:"avg_cost_per_req"`
+	SuccessRate   float64           `json:"success_rate"`
+	AvgResponseMs float64           `json:"avg_response_ms"`
+	AvgTtfbMs     float64           `json:"avg_ttfb_ms"`
+	TopModels     []ModelUsage      `json:"top_models"`
 	Comparisons   *UsageComparisons `json:"comparisons,omitempty"`
 }
 
