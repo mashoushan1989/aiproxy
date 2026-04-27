@@ -37,6 +37,10 @@ test-config.env
 test-*.sh
 test-*.py
 
+# Local scratch output
+tmp/
+tmp_*.csv
+
 # Internal docs (contain sensitive infra/domain details)
 CLAUDE.md
 DEPLOYMENT.md
