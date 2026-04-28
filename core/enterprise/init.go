@@ -72,6 +72,9 @@ func PostDBInit() {
 	// Start Feishu organization sync scheduler (every 6 hours)
 	feishu.StartSyncScheduler(ctx)
 
+	// Expire temporary quota policy overrides and restore fallback policies.
+	quota.StartBindingExpiryScheduler(ctx)
+
 	// Start PPIO and Novita daily model sync schedulers (02:00 and 02:15 respectively)
 	ppio.StartSyncScheduler(ctx)
 	novita.StartSyncScheduler(ctx)

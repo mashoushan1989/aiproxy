@@ -3,6 +3,7 @@
 package quota
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,5 +175,150 @@ func TestSyncPolicyBindingsToTokensRefreshesUpdatedPolicyBindings(t *testing.T) 
 		if _, err := model.GetAndValidateToken(key); err != nil {
 			t.Fatalf("expected token %s to pass after binding sync: %v", key, err)
 		}
+	}
+}
+
+func TestGetPolicyForUserSkipsExpiredUserOverride(t *testing.T) {
+	setupQuotaTestDB(t)
+
+	createQuotaUserToken(t, "open-expired", "group-expired", "dept-expired", "4")
+	if err := model.DB.Create(&models.FeishuDepartment{
+		DepartmentID: "dept-expired",
+		Name:         "Expired Dept",
+		Status:       1,
+	}).Error; err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+
+	deptPolicy := &models.QuotaPolicy{
+		Name:         "department fallback",
+		PeriodQuota:  20000,
+		PeriodType:   models.PeriodTypeMonthly,
+		BlockAtTier3: false,
+	}
+	if err := model.DB.Create(deptPolicy).Error; err != nil {
+		t.Fatalf("create department policy: %v", err)
+	}
+
+	userPolicy := &models.QuotaPolicy{
+		Name:         "expired user override",
+		PeriodQuota:  5000,
+		PeriodType:   models.PeriodTypeMonthly,
+		BlockAtTier3: true,
+	}
+	if err := model.DB.Create(userPolicy).Error; err != nil {
+		t.Fatalf("create user policy: %v", err)
+	}
+
+	now := time.Now()
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+
+	if err := model.DB.Create(&models.DepartmentQuotaPolicy{
+		DepartmentID:  "dept-expired",
+		QuotaPolicyID: deptPolicy.ID,
+		EffectiveAt:   &past,
+		ExpiresAt:     &future,
+	}).Error; err != nil {
+		t.Fatalf("create department binding: %v", err)
+	}
+
+	if err := model.DB.Create(&models.UserQuotaPolicy{
+		OpenID:        "open-expired",
+		QuotaPolicyID: userPolicy.ID,
+		EffectiveAt:   &past,
+		ExpiresAt:     &past,
+	}).Error; err != nil {
+		t.Fatalf("create expired user binding: %v", err)
+	}
+
+	got, err := GetPolicyForUser(context.Background(), "open-expired")
+	if err != nil {
+		t.Fatalf("GetPolicyForUser: %v", err)
+	}
+	if got == nil || got.ID != deptPolicy.ID {
+		t.Fatalf("effective policy ID = %v, want %d", got, deptPolicy.ID)
+	}
+}
+
+func TestExpirePolicyBindingsResyncsUserToFallbackPolicy(t *testing.T) {
+	setupQuotaTestDB(t)
+
+	key := createQuotaUserToken(t, "open-reset", "group-reset", "dept-reset", "5")
+	if err := model.DB.Create(&models.FeishuDepartment{
+		DepartmentID: "dept-reset",
+		Name:         "Reset Dept",
+		Status:       1,
+	}).Error; err != nil {
+		t.Fatalf("create department: %v", err)
+	}
+
+	fallbackPolicy := &models.QuotaPolicy{
+		Name:         "fallback price control",
+		PeriodQuota:  20000,
+		PeriodType:   models.PeriodTypeMonthly,
+		BlockAtTier3: false,
+	}
+	if err := model.DB.Create(fallbackPolicy).Error; err != nil {
+		t.Fatalf("create fallback policy: %v", err)
+	}
+
+	expiredPolicy := &models.QuotaPolicy{
+		Name:         "expired hard limit",
+		PeriodQuota:  5000,
+		PeriodType:   models.PeriodTypeMonthly,
+		BlockAtTier3: true,
+	}
+	if err := model.DB.Create(expiredPolicy).Error; err != nil {
+		t.Fatalf("create expired policy: %v", err)
+	}
+
+	now := time.Now()
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+
+	if err := model.DB.Create(&models.DepartmentQuotaPolicy{
+		DepartmentID:  "dept-reset",
+		QuotaPolicyID: fallbackPolicy.ID,
+		EffectiveAt:   &past,
+		ExpiresAt:     &future,
+	}).Error; err != nil {
+		t.Fatalf("create fallback binding: %v", err)
+	}
+
+	if err := model.DB.Create(&models.UserQuotaPolicy{
+		OpenID:        "open-reset",
+		QuotaPolicyID: expiredPolicy.ID,
+		EffectiveAt:   &past,
+		ExpiresAt:     &past,
+	}).Error; err != nil {
+		t.Fatalf("create expired binding: %v", err)
+	}
+
+	if err := model.DB.Model(&model.Token{}).
+		Where("key = ?", key).
+		Updates(map[string]any{
+			"period_quota":  float64(5000),
+			"period_type":   model.PeriodTypeMonthly,
+			"used_amount":   float64(10000),
+			"request_count": 1,
+		}).Error; err != nil {
+		t.Fatalf("seed stale token hard quota: %v", err)
+	}
+
+	expirePolicyBindingsOnce(now)
+
+	if got := tokenPeriodQuota(t, key); got != 0 {
+		t.Fatalf("period quota after expiry reset = %v, want 0", got)
+	}
+
+	var count int64
+	if err := model.DB.Model(&models.UserQuotaPolicy{}).
+		Where("open_id = ?", "open-reset").
+		Count(&count).Error; err != nil {
+		t.Fatalf("count user bindings: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("active user bindings = %d, want 0", count)
 	}
 }

@@ -17,6 +17,29 @@ const (
 	PeriodTypeMonthly = 3
 )
 
+// PeriodStartByType returns the calendar-aligned start of the current period.
+func PeriodStartByType(periodType int) time.Time {
+	return PeriodStartAt(time.Now(), periodType)
+}
+
+// PeriodStartAt returns the calendar-aligned period start for the provided time.
+func PeriodStartAt(now time.Time, periodType int) time.Time {
+	switch periodType {
+	case PeriodTypeDaily:
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	case PeriodTypeWeekly:
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7 // Sunday = 7
+		}
+
+		monday := now.AddDate(0, 0, -(weekday - 1))
+		return time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, now.Location())
+	default: // monthly or unknown
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	}
+}
+
 // QuotaPolicy defines a progressive quota tier strategy.
 // When a group's period usage reaches a tier threshold, the system can
 // adjust RPM/TPM multipliers or block access entirely.
@@ -187,6 +210,8 @@ type DepartmentQuotaPolicy struct {
 	DepartmentID  string         `json:"department_id"   gorm:"size:64;uniqueIndex;not null"`
 	QuotaPolicyID int            `json:"quota_policy_id" gorm:"index;not null"`
 	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"    gorm:"foreignKey:QuotaPolicyID"`
+	EffectiveAt   *time.Time     `json:"effective_at"    gorm:"index"`
+	ExpiresAt     *time.Time     `json:"expires_at"      gorm:"index"`
 }
 
 func (DepartmentQuotaPolicy) TableName() string {
@@ -202,6 +227,8 @@ type UserQuotaPolicy struct {
 	OpenID        string         `json:"open_id"         gorm:"size:64;uniqueIndex;not null"`
 	QuotaPolicyID int            `json:"quota_policy_id" gorm:"index;not null"`
 	QuotaPolicy   *QuotaPolicy   `json:"quota_policy"    gorm:"foreignKey:QuotaPolicyID"`
+	EffectiveAt   *time.Time     `json:"effective_at"    gorm:"index"`
+	ExpiresAt     *time.Time     `json:"expires_at"      gorm:"index"`
 }
 
 func (UserQuotaPolicy) TableName() string {

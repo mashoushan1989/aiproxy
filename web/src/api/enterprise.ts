@@ -36,6 +36,8 @@ export interface DepartmentQuotaPolicyBinding {
     department_id: string
     quota_policy_id: number
     quota_policy?: QuotaPolicy
+    effective_at?: string | null
+    expires_at?: string | null
     level1_name?: string
     level2_name?: string
     member_count?: number
@@ -149,6 +151,8 @@ export interface UserQuotaPolicy {
     quota_policy_id: number
     quota_policy?: QuotaPolicy
     user_name?: string
+    effective_at?: string | null
+    expires_at?: string | null
     created_at: string
     updated_at: string
 }
@@ -880,8 +884,12 @@ export const enterpriseApi = {
     },
 
     // Department Quota APIs
-    bindPolicyToDepartment: (department_id: string, quota_policy_id: number): Promise<void> => {
-        return post('/enterprise/quota/bind-department', { department_id, quota_policy_id })
+    bindPolicyToDepartment: (department_id: string, quota_policy_id: number, expires_at?: string | null): Promise<void> => {
+        return post('/enterprise/quota/bind-department', { department_id, quota_policy_id, expires_at })
+    },
+
+    updateDepartmentPolicyBindingExpiry: (department_id: string, expires_at: string | null): Promise<DepartmentQuotaPolicyBinding> => {
+        return put(`/enterprise/quota/bind-department/${department_id}`, { expires_at })
     },
 
     unbindPolicyFromDepartment: (department_id: string): Promise<void> => {
@@ -889,8 +897,12 @@ export const enterpriseApi = {
     },
 
     // User Quota APIs
-    bindPolicyToUser: (open_id: string, quota_policy_id: number): Promise<void> => {
-        return post('/enterprise/quota/bind-user', { open_id, quota_policy_id })
+    bindPolicyToUser: (open_id: string, quota_policy_id: number, expires_at?: string | null): Promise<void> => {
+        return post('/enterprise/quota/bind-user', { open_id, quota_policy_id, expires_at })
+    },
+
+    updateUserPolicyBindingExpiry: (open_id: string, expires_at: string | null): Promise<UserQuotaPolicy> => {
+        return put(`/enterprise/quota/bind-user/${open_id}`, { expires_at })
     },
 
     unbindPolicyFromUser: (open_id: string): Promise<void> => {
@@ -898,12 +910,12 @@ export const enterpriseApi = {
     },
 
     // Batch bind / list bindings APIs
-    batchBindPolicyToDepartments: (department_ids: string[], quota_policy_id: number): Promise<BatchBindResponse> => {
-        return post<BatchBindResponse>('/enterprise/quota/batch-bind-departments', { department_ids, quota_policy_id })
+    batchBindPolicyToDepartments: (department_ids: string[], quota_policy_id: number, expires_at?: string | null): Promise<BatchBindResponse> => {
+        return post<BatchBindResponse>('/enterprise/quota/batch-bind-departments', { department_ids, quota_policy_id, expires_at })
     },
 
-    batchBindPolicyToUsers: (open_ids: string[], quota_policy_id: number): Promise<{ bindings: UserQuotaPolicy[]; errors: string[] }> => {
-        return post('/enterprise/quota/batch-bind-users', { open_ids, quota_policy_id })
+    batchBindPolicyToUsers: (open_ids: string[], quota_policy_id: number, expires_at?: string | null): Promise<{ bindings: UserQuotaPolicy[]; errors: string[] }> => {
+        return post('/enterprise/quota/batch-bind-users', { open_ids, quota_policy_id, expires_at })
     },
 
     listDepartmentPolicyBindings: (policy_id?: number): Promise<DepartmentPolicyBindingsResponse> => {

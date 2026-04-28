@@ -115,35 +115,35 @@ func (t *Token) NeedsPeriodReset() (bool, error) {
 	}
 
 	now := time.Now()
-
-	switch t.PeriodType {
-	case "", PeriodTypeMonthly:
-		// Check if we've crossed a month boundary since last reset
-		baseMonth := baseTime.Month()
-		baseYear := baseTime.Year()
-		currentMonth := now.Month()
-		currentYear := now.Year()
-
-		if currentYear > baseYear {
-			return true, nil
-		}
-
-		if currentYear == baseYear && currentMonth > baseMonth {
-			return true, nil
-		}
-
-		return false, nil
-	case PeriodTypeWeekly:
-		// Check if we've passed 7 days since last reset
-		return now.Sub(baseTime) >= 7*24*time.Hour, nil
-	case PeriodTypeDaily:
-		// Check if we've crossed to a new day since last reset
-		baseDate := baseTime.Truncate(24 * time.Hour)
-		currentDate := now.Truncate(24 * time.Hour)
-		return currentDate.After(baseDate), nil
-	default:
-		return false, fmt.Errorf("unknown period type: %s", t.PeriodType)
+	periodStart, err := tokenPeriodStart(now, t.PeriodType)
+	if err != nil {
+		return false, err
 	}
+
+	return baseTime.Before(periodStart), nil
+}
+
+func tokenPeriodStart(now time.Time, periodType EmptyNullString) (time.Time, error) {
+	switch periodType {
+	case "", PeriodTypeMonthly:
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()), nil
+	case PeriodTypeWeekly:
+		weekday := int(now.Weekday())
+		if weekday == 0 {
+			weekday = 7 // Sunday = 7
+		}
+
+		monday := now.AddDate(0, 0, -(weekday - 1))
+		return time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, now.Location()), nil
+	case PeriodTypeDaily:
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), nil
+	default:
+		return time.Time{}, fmt.Errorf("unknown period type: %s", periodType)
+	}
+}
+
+func currentTokenPeriodStart(periodType EmptyNullString) (time.Time, error) {
+	return tokenPeriodStart(time.Now(), periodType)
 }
 
 const (
@@ -1062,78 +1062,25 @@ func bulkUpdateTokenScanRows(sql string, args []any, updates map[int]*TokenUpdat
 	return rows.Err()
 }
 
-// calculateNextPeriodStartTime calculates the next period start time based on the last update time and period type
-// This finds the most recent period boundary by incrementing from lastUpdateTime until we reach the current time
-// This maintains period continuity - e.g., if reset was on Jan 15, next periods are Feb 15, Mar 15, etc.
+// calculateNextPeriodStartTime returns the current calendar-aligned period start.
+// Daily resets happen at local 00:00, weekly at local Monday 00:00, and monthly
+// at local day 1 00:00. This matches enterprise quota-policy usage windows.
 func calculateNextPeriodStartTime(lastUpdateTime time.Time, periodType EmptyNullString) time.Time {
-	if lastUpdateTime.IsZero() {
-		// If never initialized, return current time
-		return time.Now()
+	now := time.Now()
+	periodStart, err := tokenPeriodStart(now, periodType)
+	if err != nil {
+		return now
 	}
 
-	now := time.Now()
+	if lastUpdateTime.IsZero() {
+		return periodStart
+	}
 
-	// If we haven't passed the period yet, no reset needed
-	if !now.After(lastUpdateTime) {
+	if !lastUpdateTime.Before(periodStart) {
 		return lastUpdateTime
 	}
 
-	switch periodType {
-	case "", PeriodTypeMonthly:
-		// Start from lastUpdateTime and keep adding months until we find the most recent period start
-		nextPeriod := lastUpdateTime
-		for {
-			// Calculate next month period
-			candidate := time.Date(
-				nextPeriod.Year(),
-				nextPeriod.Month()+1,
-				nextPeriod.Day(),
-				nextPeriod.Hour(),
-				nextPeriod.Minute(),
-				nextPeriod.Second(),
-				nextPeriod.Nanosecond(),
-				nextPeriod.Location(),
-			)
-
-			// If candidate is in the future, the current nextPeriod is the one we want
-			if candidate.After(now) {
-				return nextPeriod
-			}
-
-			nextPeriod = candidate
-		}
-
-	case PeriodTypeWeekly:
-		// Calculate how many complete weeks have passed since lastUpdateTime
-		daysSinceLastUpdate := now.Sub(lastUpdateTime).Hours() / 24
-		weeksPassed := int(daysSinceLastUpdate / 7)
-
-		if weeksPassed == 0 {
-			// Still in the same week period, no reset needed
-			return lastUpdateTime
-		}
-
-		// Return the start of the most recent week period
-		// This is lastUpdateTime + (weeksPassed * 7 days)
-		return lastUpdateTime.Add(time.Duration(weeksPassed*7*24) * time.Hour)
-
-	case PeriodTypeDaily:
-		// Calculate how many complete days have passed since lastUpdateTime
-		daysSinceLastUpdate := int(now.Sub(lastUpdateTime).Hours() / 24)
-
-		if daysSinceLastUpdate == 0 {
-			// Still in the same day period, no reset needed
-			return lastUpdateTime
-		}
-
-		// Return the start of the most recent day period
-		// This is lastUpdateTime + (daysPassed * 1 day)
-		return lastUpdateTime.Add(time.Duration(daysSinceLastUpdate*24) * time.Hour)
-
-	default:
-		// Fallback to current time for unknown period types
-		return now
-	}
+	return periodStart
 }
 
 // ResetTokenPeriodUsage resets the period usage for a token with concurrency safety

@@ -136,9 +136,15 @@ func GetPolicyForUser(ctx context.Context, openID string) (*models.QuotaPolicy, 
 		return nil, err
 	}
 
+	now := time.Now()
+
 	// 1. Check user-level policy (highest priority)
 	var userPolicy models.UserQuotaPolicy
-	err := model.DB.Preload("QuotaPolicy").Where("open_id = ?", openID).First(&userPolicy).Error
+	err := model.DB.
+		Scopes(activePolicyBindingScope(now)).
+		Preload("QuotaPolicy").
+		Where("open_id = ?", openID).
+		First(&userPolicy).Error
 	if err == nil && userPolicy.QuotaPolicy != nil {
 		return userPolicy.QuotaPolicy, nil
 	}
@@ -188,7 +194,11 @@ func GetPolicyForUser(ctx context.Context, openID string) (*models.QuotaPolicy, 
 	// Single query to load all matching department policies
 	var deptPolicies []models.DepartmentQuotaPolicy
 	if len(allDeptIDForms) > 0 {
-		model.DB.Preload("QuotaPolicy").Where("department_id IN ?", allDeptIDForms).Find(&deptPolicies)
+		model.DB.
+			Scopes(activePolicyBindingScope(now)).
+			Preload("QuotaPolicy").
+			Where("department_id IN ?", allDeptIDForms).
+			Find(&deptPolicies)
 	}
 
 	// Build lookup: department_id → DepartmentQuotaPolicy

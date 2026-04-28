@@ -69,7 +69,7 @@ type FeishuUserWithDepartment struct {
 	models.FeishuUser
 	DepartmentPath    *DepartmentPath `json:"department_path"`
 	EffectivePolicy   *string         `json:"effective_policy,omitempty"`
-	PolicySource      *string         `json:"policy_source,omitempty"`  // "user" or "department"
+	PolicySource      *string         `json:"policy_source,omitempty"`       // "user" or "department"
 	QuotaUsagePercent *float64        `json:"quota_usage_percent,omitempty"` // 0.0-1.0+, nil if no quota
 	PeriodQuota       *float64        `json:"period_quota,omitempty"`
 	PeriodUsed        *float64        `json:"period_used,omitempty"`
@@ -353,8 +353,8 @@ func batchResolveQuotaUsage(
 		periodQuota float64
 	}
 
-	periodBuckets := make(map[int][]string)    // periodType → groupIDs
-	groupPolicies := make(map[string]float64)  // groupID → periodQuota
+	periodBuckets := make(map[int][]string)   // periodType → groupIDs
+	groupPolicies := make(map[string]float64) // groupID → periodQuota
 
 	for _, u := range users {
 		if u.GroupID == "" {
@@ -394,7 +394,7 @@ func batchResolveQuotaUsage(
 
 	// Query group_summaries per period type (at most 3 queries: daily/weekly/monthly)
 	for periodType, groupIDs := range periodBuckets {
-		periodStart := currentPeriodStartByType(periodType)
+		periodStart := models.PeriodStartByType(periodType)
 
 		type groupAgg struct {
 			GroupID    string  `gorm:"column:group_id"`
@@ -439,32 +439,13 @@ func batchResolveQuotaUsage(
 	return result
 }
 
-// currentPeriodStartByType computes the calendar-aligned start of the current period
-// for a given policy PeriodType (int: 1=daily, 2=weekly, 3=monthly).
-func currentPeriodStartByType(periodType int) time.Time {
-	now := time.Now()
-
-	switch periodType {
-	case models.PeriodTypeDaily:
-		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	case models.PeriodTypeWeekly:
-		weekday := int(now.Weekday())
-		if weekday == 0 {
-			weekday = 7 // Sunday = 7
-		}
-		monday := now.AddDate(0, 0, -(weekday - 1))
-		return time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, now.Location())
-	default: // monthly or unknown
-		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
-	}
-}
-
 // batchResolveEffectivePolicies returns two maps:
 // 1. openID → *QuotaPolicy (for users with UserQuotaPolicy)
 // 2. departmentID → *QuotaPolicy (for departments with DepartmentQuotaPolicy, all ID forms)
 func batchResolveEffectivePolicies(users []models.FeishuUser) (map[string]*models.QuotaPolicy, map[string]*models.QuotaPolicy) {
 	userPolicyMap := make(map[string]*models.QuotaPolicy)
 	deptPolicyMap := make(map[string]*models.QuotaPolicy)
+	now := time.Now()
 
 	if len(users) == 0 {
 		return userPolicyMap, deptPolicyMap
@@ -486,7 +467,12 @@ func batchResolveEffectivePolicies(users []models.FeishuUser) (map[string]*model
 	// Batch load user-level policies
 	if len(openIDs) > 0 {
 		var userPolicies []models.UserQuotaPolicy
-		model.DB.Preload("QuotaPolicy").Where("open_id IN ?", openIDs).Find(&userPolicies)
+		model.DB.
+			Preload("QuotaPolicy").
+			Where("open_id IN ?", openIDs).
+			Where("(effective_at IS NULL OR effective_at <= ?)", now).
+			Where("(expires_at IS NULL OR expires_at > ?)", now).
+			Find(&userPolicies)
 
 		for _, up := range userPolicies {
 			if up.QuotaPolicy != nil {
@@ -529,7 +515,12 @@ func batchResolveEffectivePolicies(users []models.FeishuUser) (map[string]*model
 		}
 
 		var deptPolicies []models.DepartmentQuotaPolicy
-		model.DB.Preload("QuotaPolicy").Where("department_id IN ?", allIDs).Find(&deptPolicies)
+		model.DB.
+			Preload("QuotaPolicy").
+			Where("department_id IN ?", allIDs).
+			Where("(effective_at IS NULL OR effective_at <= ?)", now).
+			Where("(expires_at IS NULL OR expires_at > ?)", now).
+			Find(&deptPolicies)
 
 		for _, dp := range deptPolicies {
 			if dp.QuotaPolicy == nil {

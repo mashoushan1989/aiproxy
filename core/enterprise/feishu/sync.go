@@ -25,15 +25,15 @@ import (
 
 // syncStats tracks sync statistics for logging
 type syncStats struct {
-	totalDepts       int
-	deptsWithName    int
-	totalUsers       int
-	usersWithName    int
-	usersWithEmail   int
-	departedUsers    int // users in DB but no longer in Feishu (deactivated during sync)
-	syncedOpenIDs    map[string]struct{} // all open_ids seen from Feishu API during this sync
-	failedDepts      int  // number of departments whose user sync failed
-	skippedDeactivate bool // true if deactivation was skipped due to safety checks
+	totalDepts        int
+	deptsWithName     int
+	totalUsers        int
+	usersWithName     int
+	usersWithEmail    int
+	departedUsers     int                 // users in DB but no longer in Feishu (deactivated during sync)
+	syncedOpenIDs     map[string]struct{} // all open_ids seen from Feishu API during this sync
+	failedDepts       int                 // number of departments whose user sync failed
+	skippedDeactivate bool                // true if deactivation was skipped due to safety checks
 }
 
 // SyncStatus holds the result of the last Feishu sync operation (API response type).
@@ -124,6 +124,7 @@ func upsertFeishuUser(db *gorm.DB, f feishuUserFields) (reactivated bool, err er
 		Level2DeptName: f.DeptPath.Level2Name,
 		DeptFullPath:   f.DeptPath.FullPath,
 		GroupID:        f.GroupID,
+		Role:           models.RoleViewer,
 		Status:         1,
 	}
 	if result := db.Create(&newUser); result.Error != nil {

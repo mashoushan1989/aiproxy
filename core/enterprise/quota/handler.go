@@ -114,6 +114,20 @@ func clearUserToken(openID string) {
 	})
 }
 
+func syncEffectivePolicyToToken(openID string) {
+	policy, err := GetPolicyForUser(context.Background(), openID)
+	if err == nil && policy != nil {
+		syncPolicyToToken(openID, policy)
+		return
+	}
+
+	clearUserToken(openID)
+}
+
+func syncEffectivePolicyToTokenBatch(openIDs []string) {
+	runBounded(openIDs, syncEffectivePolicyToToken)
+}
+
 // runBounded executes fn for each item with bounded concurrency.
 func runBounded(items []string, fn func(string)) {
 	sem := make(chan struct{}, maxSyncConcurrency)
@@ -160,7 +174,10 @@ func getDepartmentUserIDsWithoutOverride(departmentID string) []string {
 	userOverrides := make(map[string]bool)
 	if len(allOpenIDs) > 0 {
 		var overrides []models.UserQuotaPolicy
-		model.DB.Where("open_id IN ?", allOpenIDs).Find(&overrides)
+		model.DB.
+			Scopes(activePolicyBindingScope(time.Now())).
+			Where("open_id IN ?", allOpenIDs).
+			Find(&overrides)
 
 		for _, o := range overrides {
 			userOverrides[o.OpenID] = true
@@ -191,9 +208,13 @@ func syncPolicyToDepartmentUsers(departmentID string, policy *models.QuotaPolicy
 // when a policy switches from hard blocking to model/price-based tier control.
 func syncPolicyBindingsToTokens(policyID int, policy *models.QuotaPolicy) {
 	openIDSet := make(map[string]struct{})
+	now := time.Now()
 
 	var userBindings []models.UserQuotaPolicy
-	if err := model.DB.Where("quota_policy_id = ?", policyID).Find(&userBindings).Error; err != nil {
+	if err := model.DB.
+		Scopes(activePolicyBindingScope(now)).
+		Where("quota_policy_id = ?", policyID).
+		Find(&userBindings).Error; err != nil {
 		log.Errorf("sync policy %d user bindings: %v", policyID, err)
 	} else {
 		for _, binding := range userBindings {
@@ -202,7 +223,10 @@ func syncPolicyBindingsToTokens(policyID int, policy *models.QuotaPolicy) {
 	}
 
 	var deptBindings []models.DepartmentQuotaPolicy
-	if err := model.DB.Where("quota_policy_id = ?", policyID).Find(&deptBindings).Error; err != nil {
+	if err := model.DB.
+		Scopes(activePolicyBindingScope(now)).
+		Where("quota_policy_id = ?", policyID).
+		Find(&deptBindings).Error; err != nil {
 		log.Errorf("sync policy %d department bindings: %v", policyID, err)
 	} else {
 		for _, binding := range deptBindings {
@@ -254,6 +278,8 @@ func syncPolicyBindingsToTokens(policyID int, policy *models.QuotaPolicy) {
 // currently bound policies. It repairs stale PeriodQuota values left by older
 // policy-sync behavior after an enterprise deployment.
 func SyncAllPolicyBindingsToTokens() {
+	expirePolicyBindingsOnce(time.Now())
+
 	var policies []models.QuotaPolicy
 	if err := model.DB.Find(&policies).Error; err != nil {
 		log.Errorf("sync all quota policy token bindings: %v", err)
@@ -510,16 +536,28 @@ func invalidatePolicyCaches(policyID int) {
 
 // bindDepartmentPolicyCore is the shared logic for binding a policy to a department.
 // Uses Unscoped to find soft-deleted records and restore them, avoiding unique index conflicts.
-func bindDepartmentPolicyCore(departmentID string, quotaPolicyID int) (*models.DepartmentQuotaPolicy, *models.QuotaPolicy, error) {
+func bindDepartmentPolicyCore(
+	departmentID string,
+	quotaPolicyID int,
+	expiresAt *time.Time,
+) (*models.DepartmentQuotaPolicy, *models.QuotaPolicy, error) {
+	if err := validateBindingExpiresAt(expiresAt); err != nil {
+		return nil, nil, err
+	}
+
 	var policy models.QuotaPolicy
 	if err := model.DB.First(&policy, quotaPolicyID).Error; err != nil {
 		return nil, nil, err
 	}
 
+	effectiveAt := time.Now()
+
 	var existing models.DepartmentQuotaPolicy
 	err := model.DB.Unscoped().Where("department_id = ?", departmentID).First(&existing).Error
 	if err == nil {
 		existing.QuotaPolicyID = quotaPolicyID
+		existing.EffectiveAt = &effectiveAt
+		existing.ExpiresAt = expiresAt
 		existing.DeletedAt = gorm.DeletedAt{}
 		if err := model.DB.Unscoped().Save(&existing).Error; err != nil {
 			return nil, nil, err
@@ -530,6 +568,8 @@ func bindDepartmentPolicyCore(departmentID string, quotaPolicyID int) (*models.D
 		existing = models.DepartmentQuotaPolicy{
 			DepartmentID:  departmentID,
 			QuotaPolicyID: quotaPolicyID,
+			EffectiveAt:   &effectiveAt,
+			ExpiresAt:     expiresAt,
 		}
 		if err := model.DB.Create(&existing).Error; err != nil {
 			return nil, nil, err
@@ -547,18 +587,23 @@ func bindDepartmentPolicyCore(departmentID string, quotaPolicyID int) (*models.D
 // BindPolicyToDepartment binds a quota policy to a department.
 func BindPolicyToDepartment(c *gin.Context) {
 	var req struct {
-		DepartmentID  string `json:"department_id"  binding:"required"`
-		QuotaPolicyID int    `json:"quota_policy_id" binding:"required"`
+		DepartmentID  string     `json:"department_id"   binding:"required"`
+		QuotaPolicyID int        `json:"quota_policy_id" binding:"required"`
+		ExpiresAt     *time.Time `json:"expires_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	binding, _, err := bindDepartmentPolicyCore(req.DepartmentID, req.QuotaPolicyID)
+	binding, _, err := bindDepartmentPolicyCore(req.DepartmentID, req.QuotaPolicyID, req.ExpiresAt)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			middleware.ErrorResponse(c, http.StatusNotFound, "policy not found")
+			return
+		}
+		if errors.Is(err, errBindingExpiredAtInPast) {
+			middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -570,14 +615,69 @@ func BindPolicyToDepartment(c *gin.Context) {
 	middleware.SuccessResponse(c, binding)
 }
 
+// UpdateDepartmentPolicyBindingExpiry updates a department binding's expiry time.
+func UpdateDepartmentPolicyBindingExpiry(c *gin.Context) {
+	deptID := c.Param("department_id")
+	if deptID == "" {
+		middleware.ErrorResponse(c, http.StatusBadRequest, "department_id is required")
+		return
+	}
+
+	var req struct {
+		ExpiresAt *time.Time `json:"expires_at"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateBindingExpiresAt(req.ExpiresAt); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var binding models.DepartmentQuotaPolicy
+	if err := model.DB.Where("department_id = ?", deptID).First(&binding).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			middleware.ErrorResponse(c, http.StatusNotFound, "no policy binding found")
+			return
+		}
+
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := model.DB.Model(&binding).Updates(map[string]any{
+		"expires_at": req.ExpiresAt,
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_ = model.DB.Preload("QuotaPolicy").First(&binding, binding.ID).Error
+	middleware.SuccessResponse(c, binding)
+}
+
 // bindUserPolicyCore is the shared logic for binding a policy to a user (upsert).
 // It does NOT spawn goroutines for token sync — callers handle that.
 // Uses Unscoped to find soft-deleted records and restore them, avoiding unique index conflicts.
-func bindUserPolicyCore(openID string, policy *models.QuotaPolicy) (*models.UserQuotaPolicy, error) {
+func bindUserPolicyCore(
+	openID string,
+	policy *models.QuotaPolicy,
+	expiresAt *time.Time,
+) (*models.UserQuotaPolicy, error) {
+	if err := validateBindingExpiresAt(expiresAt); err != nil {
+		return nil, err
+	}
+
+	effectiveAt := time.Now()
+
 	var existing models.UserQuotaPolicy
 	err := model.DB.Unscoped().Where("open_id = ?", openID).First(&existing).Error
 	if err == nil {
 		existing.QuotaPolicyID = policy.ID
+		existing.EffectiveAt = &effectiveAt
+		existing.ExpiresAt = expiresAt
 		existing.DeletedAt = gorm.DeletedAt{}
 		if err := model.DB.Unscoped().Save(&existing).Error; err != nil {
 			return nil, err
@@ -593,6 +693,8 @@ func bindUserPolicyCore(openID string, policy *models.QuotaPolicy) (*models.User
 	binding := models.UserQuotaPolicy{
 		OpenID:        openID,
 		QuotaPolicyID: policy.ID,
+		EffectiveAt:   &effectiveAt,
+		ExpiresAt:     expiresAt,
 	}
 	if err := model.DB.Create(&binding).Error; err != nil {
 		return nil, err
@@ -604,8 +706,9 @@ func bindUserPolicyCore(openID string, policy *models.QuotaPolicy) (*models.User
 // BindPolicyToUser binds a quota policy to a specific user (overrides department policy).
 func BindPolicyToUser(c *gin.Context) {
 	var req struct {
-		OpenID        string `json:"open_id"        binding:"required"`
-		QuotaPolicyID int    `json:"quota_policy_id" binding:"required"`
+		OpenID        string     `json:"open_id"         binding:"required"`
+		QuotaPolicyID int        `json:"quota_policy_id" binding:"required"`
+		ExpiresAt     *time.Time `json:"expires_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
@@ -624,8 +727,13 @@ func BindPolicyToUser(c *gin.Context) {
 		return
 	}
 
-	binding, err := bindUserPolicyCore(req.OpenID, &policy)
+	binding, err := bindUserPolicyCore(req.OpenID, &policy, req.ExpiresAt)
 	if err != nil {
+		if errors.Is(err, errBindingExpiredAtInPast) {
+			middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
 		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -637,8 +745,51 @@ func BindPolicyToUser(c *gin.Context) {
 	middleware.SuccessResponse(c, binding)
 }
 
+// UpdateUserPolicyBindingExpiry updates a user override's expiry time.
+func UpdateUserPolicyBindingExpiry(c *gin.Context) {
+	openID := c.Param("open_id")
+	if openID == "" {
+		middleware.ErrorResponse(c, http.StatusBadRequest, "open_id is required")
+		return
+	}
+
+	var req struct {
+		ExpiresAt *time.Time `json:"expires_at"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateBindingExpiresAt(req.ExpiresAt); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var binding models.UserQuotaPolicy
+	if err := model.DB.Where("open_id = ?", openID).First(&binding).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			middleware.ErrorResponse(c, http.StatusNotFound, "no policy binding found")
+			return
+		}
+
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := model.DB.Model(&binding).Updates(map[string]any{
+		"expires_at": req.ExpiresAt,
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	_ = model.DB.Preload("QuotaPolicy").First(&binding, binding.ID).Error
+	middleware.SuccessResponse(c, binding)
+}
+
 // UnbindPolicyFromDepartment removes the quota policy binding for a department.
-// Users without personal overrides have their Token PeriodQuota cleared.
+// Users without personal overrides fall back to their next effective policy.
 func UnbindPolicyFromDepartment(c *gin.Context) {
 	deptID := c.Param("department_id")
 	if deptID == "" {
@@ -661,7 +812,7 @@ func UnbindPolicyFromDepartment(c *gin.Context) {
 	go func() {
 		openIDs := getDepartmentUserIDsWithoutOverride(deptID)
 		if len(openIDs) > 0 {
-			clearUserTokenBatch(openIDs)
+			syncEffectivePolicyToTokenBatch(openIDs)
 		}
 	}()
 
@@ -688,13 +839,7 @@ func UnbindPolicyFromUser(c *gin.Context) {
 		return
 	}
 
-	// Try falling back to department policy, otherwise clear
-	policy, err := GetPolicyForUser(c.Request.Context(), openID)
-	if err == nil && policy != nil && policy.PeriodQuota > 0 {
-		syncPolicyToToken(openID, policy)
-	} else {
-		clearUserToken(openID)
-	}
+	syncEffectivePolicyToToken(openID)
 
 	middleware.SuccessResponse(c, nil)
 }
@@ -702,10 +847,15 @@ func UnbindPolicyFromUser(c *gin.Context) {
 // BatchBindPolicyToDepartments binds a quota policy to multiple departments at once.
 func BatchBindPolicyToDepartments(c *gin.Context) {
 	var req struct {
-		DepartmentIDs []string `json:"department_ids" binding:"required"`
-		QuotaPolicyID int      `json:"quota_policy_id" binding:"required"`
+		DepartmentIDs []string   `json:"department_ids"   binding:"required"`
+		QuotaPolicyID int        `json:"quota_policy_id"  binding:"required"`
+		ExpiresAt     *time.Time `json:"expires_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateBindingExpiresAt(req.ExpiresAt); err != nil {
 		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -720,7 +870,7 @@ func BatchBindPolicyToDepartments(c *gin.Context) {
 	var errs []string
 
 	for _, deptID := range req.DepartmentIDs {
-		binding, _, err := bindDepartmentPolicyCore(deptID, req.QuotaPolicyID)
+		binding, _, err := bindDepartmentPolicyCore(deptID, req.QuotaPolicyID, req.ExpiresAt)
 		if err != nil {
 			errs = append(errs, deptID+": "+err.Error())
 
@@ -744,10 +894,15 @@ func BatchBindPolicyToDepartments(c *gin.Context) {
 // BatchBindPolicyToUsers binds a quota policy to multiple users at once.
 func BatchBindPolicyToUsers(c *gin.Context) {
 	var req struct {
-		OpenIDs       []string `json:"open_ids"        binding:"required"`
-		QuotaPolicyID int      `json:"quota_policy_id" binding:"required"`
+		OpenIDs       []string   `json:"open_ids"        binding:"required"`
+		QuotaPolicyID int        `json:"quota_policy_id" binding:"required"`
+		ExpiresAt     *time.Time `json:"expires_at"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := validateBindingExpiresAt(req.ExpiresAt); err != nil {
 		middleware.ErrorResponse(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -776,7 +931,7 @@ func BatchBindPolicyToUsers(c *gin.Context) {
 	var syncOpenIDs []string
 
 	for _, openID := range req.OpenIDs {
-		binding, err := bindUserPolicyCore(openID, &policy)
+		binding, err := bindUserPolicyCore(openID, &policy, req.ExpiresAt)
 		if err != nil {
 			errs = append(errs, openID+": "+err.Error())
 
@@ -940,7 +1095,11 @@ func buildDepartmentLookup() map[string]*models.FeishuDepartment {
 
 // ListDepartmentPolicyBindings returns all department-policy bindings, optionally filtered by policy_id.
 func ListDepartmentPolicyBindings(c *gin.Context) {
-	tx := model.DB.Preload("QuotaPolicy").Model(&models.DepartmentQuotaPolicy{})
+	now := time.Now()
+	tx := model.DB.
+		Scopes(activePolicyBindingScope(now)).
+		Preload("QuotaPolicy").
+		Model(&models.DepartmentQuotaPolicy{})
 
 	policyIDStr := c.Query("policy_id")
 	if policyIDStr != "" {
@@ -968,7 +1127,7 @@ func ListDepartmentPolicyBindings(c *gin.Context) {
 	model.DB.Find(&allUsers)
 
 	var allOverrides []models.UserQuotaPolicy
-	model.DB.Find(&allOverrides)
+	model.DB.Scopes(activePolicyBindingScope(now)).Find(&allOverrides)
 	overrideSet := make(map[string]bool, len(allOverrides))
 	for _, o := range allOverrides {
 		overrideSet[o.OpenID] = true
@@ -1038,7 +1197,10 @@ type UserBindingDetail struct {
 
 // ListUserPolicyBindings returns all user-policy bindings, optionally filtered by policy_id.
 func ListUserPolicyBindings(c *gin.Context) {
-	tx := model.DB.Preload("QuotaPolicy").Model(&models.UserQuotaPolicy{})
+	tx := model.DB.
+		Scopes(activePolicyBindingScope(time.Now())).
+		Preload("QuotaPolicy").
+		Model(&models.UserQuotaPolicy{})
 
 	policyIDStr := c.Query("policy_id")
 	if policyIDStr != "" {

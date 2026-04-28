@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, Trash2, Shield, AlertTriangle, Search, Building2, User, Bell } from "lucide-react"
+import { Plus, Pencil, Trash2, Shield, AlertTriangle, Search, Building2, User, Bell, CalendarClock } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -89,6 +89,40 @@ const defaultPolicy: QuotaPolicyInput = {
     tier3_price_condition: "or",
     period_quota: 0,
     period_type: 3,
+}
+
+function toDateTimeLocal(value?: string | null) {
+    if (!value) return ""
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ""
+
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function dateTimeLocalToISO(value: string) {
+    if (!value) return null
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toISOString()
+}
+
+function formatBindingTime(value?: string | null, fallback?: string | null) {
+    const raw = value || fallback
+    if (!raw) return "—"
+    const date = new Date(raw)
+    if (Number.isNaN(date.getTime())) return "—"
+    return date.toLocaleString()
+}
+
+function formatExpiryTime(value: string | null | undefined, permanentLabel: string) {
+    if (!value) return permanentLabel
+    return formatBindingTime(value)
+}
+
+function isPastDateTimeLocal(value: string) {
+    const date = new Date(value)
+    return !Number.isNaN(date.getTime()) && date.getTime() <= Date.now()
 }
 
 /** Clamp-on-blur number input that avoids the broken onChange-clamp-every-keystroke pattern. */
@@ -473,6 +507,61 @@ function PolicyForm({
     )
 }
 
+function BindingExpiryDialog({
+    open,
+    title,
+    description,
+    value,
+    isSaving,
+    onValueChange,
+    onClose,
+    onSave,
+}: {
+    open: boolean
+    title: string
+    description: string
+    value: string
+    isSaving: boolean
+    onValueChange: (value: string) => void
+    onClose: () => void
+    onSave: () => void
+}) {
+    const { t } = useTranslation()
+
+    return (
+        <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+            <DialogContent className="max-w-md">
+                <DialogHeader>
+                    <DialogTitle>{title}</DialogTitle>
+                    <DialogDescription>{description}</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-2">
+                    <Label>{t("enterprise.quota.expiresAt" as never)}</Label>
+                    <Input
+                        type="datetime-local"
+                        value={value}
+                        onChange={(e) => onValueChange(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        {t("enterprise.quota.expiresAtHint" as never)}
+                    </p>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose}>
+                        {t("common.cancel")}
+                    </Button>
+                    <Button variant="outline" onClick={() => onValueChange("")}>
+                        {t("enterprise.quota.clearExpiry" as never)}
+                    </Button>
+                    <Button onClick={onSave} disabled={isSaving}>
+                        {isSaving ? t("common.saving") : t("common.save")}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
 // ─── Department Binding Tab ─────────────────────────────────────────────────
 
 function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]; canManage: boolean }) {
@@ -488,6 +577,9 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
     const [hasQueried, setHasQueried] = useState(false)
     const [checkedDeptIds, setCheckedDeptIds] = useState<Set<string>>(new Set())
     const [bindPolicyId, setBindPolicyId] = useState<string>("")
+    const [bindExpiresAt, setBindExpiresAt] = useState("")
+    const [editingBinding, setEditingBinding] = useState<DepartmentQuotaPolicyBinding | null>(null)
+    const [editingExpiresAt, setEditingExpiresAt] = useState("")
 
     // Fetch level1 departments (always)
     const { data: deptLevels } = useQuery({
@@ -508,13 +600,26 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
     })
 
     const batchBindMutation = useMutation({
-        mutationFn: ({ department_ids, quota_policy_id }: { department_ids: string[]; quota_policy_id: number }) =>
-            enterpriseApi.batchBindPolicyToDepartments(department_ids, quota_policy_id),
+        mutationFn: ({ department_ids, quota_policy_id, expires_at }: { department_ids: string[]; quota_policy_id: number; expires_at: string | null }) =>
+            enterpriseApi.batchBindPolicyToDepartments(department_ids, quota_policy_id, expires_at),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["enterprise", "dept-bindings"] })
             setCheckedDeptIds(new Set())
             setBindPolicyId("")
+            setBindExpiresAt("")
             toast.success(t("enterprise.quota.batchBindSuccess"))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const updateExpiryMutation = useMutation({
+        mutationFn: ({ department_id, expires_at }: { department_id: string; expires_at: string | null }) =>
+            enterpriseApi.updateDepartmentPolicyBindingExpiry(department_id, expires_at),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["enterprise", "dept-bindings"] })
+            setEditingBinding(null)
+            setEditingExpiresAt("")
+            toast.success(t("enterprise.quota.expiryUpdated" as never))
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -575,9 +680,31 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
 
     const handleBatchBind = () => {
         if (checkedDeptIds.size === 0 || !bindPolicyId) return
+        if (bindExpiresAt && isPastDateTimeLocal(bindExpiresAt)) {
+            toast.error(t("enterprise.quota.expiryMustBeFuture" as never))
+            return
+        }
         batchBindMutation.mutate({
             department_ids: Array.from(checkedDeptIds),
             quota_policy_id: parseInt(bindPolicyId),
+            expires_at: dateTimeLocalToISO(bindExpiresAt),
+        })
+    }
+
+    const openExpiryEditor = (binding: DepartmentQuotaPolicyBinding) => {
+        setEditingBinding(binding)
+        setEditingExpiresAt(toDateTimeLocal(binding.expires_at))
+    }
+
+    const saveExpiry = () => {
+        if (!editingBinding) return
+        if (editingExpiresAt && isPastDateTimeLocal(editingExpiresAt)) {
+            toast.error(t("enterprise.quota.expiryMustBeFuture" as never))
+            return
+        }
+        updateExpiryMutation.mutate({
+            department_id: editingBinding.department_id,
+            expires_at: dateTimeLocalToISO(editingExpiresAt),
         })
     }
 
@@ -664,6 +791,17 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
                                             ))}
                                         </SelectContent>
                                     </Select>
+                                    <div className="relative">
+                                        <CalendarClock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="datetime-local"
+                                            value={bindExpiresAt}
+                                            onChange={(e) => setBindExpiresAt(e.target.value)}
+                                            className="w-[210px] pl-8"
+                                            title={t("enterprise.quota.expiresAt" as never)}
+                                            aria-label={t("enterprise.quota.expiresAt" as never)}
+                                        />
+                                    </div>
                                     <Button
                                         onClick={handleBatchBind}
                                         disabled={!bindPolicyId || batchBindMutation.isPending}
@@ -746,6 +884,8 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
                                     <TableHead>{t("enterprise.quota.policy")}</TableHead>
                                     <TableHead>{t("enterprise.quota.memberCount")}</TableHead>
                                     <TableHead>{t("enterprise.quota.overrideCount")}</TableHead>
+                                    <TableHead>{t("enterprise.quota.effectiveAt" as never)}</TableHead>
+                                    <TableHead>{t("enterprise.quota.expiresAt" as never)}</TableHead>
                                     <TableHead>{t("enterprise.quota.policyUpdatedAt")}</TableHead>
                                     <TableHead className="w-24">{t("common.edit")}</TableHead>
                                 </TableRow>
@@ -767,19 +907,39 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
                                             {b.override_count ?? 0}{t("enterprise.quota.membersUnit") ? ` ${t("enterprise.quota.membersUnit")}` : ""}
                                         </TableCell>
                                         <TableCell className="text-sm text-muted-foreground">
+                                            {formatBindingTime(b.effective_at, b.created_at)}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            {b.expires_at ? (
+                                                <span>{formatExpiryTime(b.expires_at, t("enterprise.quota.neverExpires" as never))}</span>
+                                            ) : (
+                                                <Badge variant="outline">{t("enterprise.quota.neverExpires" as never)}</Badge>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
                                             {new Date(b.updated_at).toLocaleString()}
                                         </TableCell>
                                         <TableCell>
                                             {canManage && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-red-500 hover:text-red-600"
-                                                    onClick={() => unbindMutation.mutate(b.department_id)}
-                                                    disabled={unbindMutation.isPending}
-                                                >
-                                                    {t("enterprise.quota.unbind")}
-                                                </Button>
+                                                <div className="flex items-center gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => openExpiryEditor(b)}
+                                                        title={t("enterprise.quota.editExpiry" as never)}
+                                                    >
+                                                        <CalendarClock className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-red-500 hover:text-red-600"
+                                                        onClick={() => unbindMutation.mutate(b.department_id)}
+                                                        disabled={unbindMutation.isPending}
+                                                    >
+                                                        {t("enterprise.quota.unbind")}
+                                                    </Button>
+                                                </div>
                                             )}
                                         </TableCell>
                                     </TableRow>
@@ -789,6 +949,20 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
                     )}
                 </CardContent>
             </Card>
+
+            <BindingExpiryDialog
+                open={!!editingBinding}
+                title={t("enterprise.quota.editExpiry" as never)}
+                description={editingBinding?.quota_policy?.name || `#${editingBinding?.quota_policy_id ?? ""}`}
+                value={editingExpiresAt}
+                isSaving={updateExpiryMutation.isPending}
+                onValueChange={setEditingExpiresAt}
+                onClose={() => {
+                    setEditingBinding(null)
+                    setEditingExpiresAt("")
+                }}
+                onSave={saveExpiry}
+            />
         </div>
     )
 }
@@ -806,6 +980,9 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
     const [hasQueried, setHasQueried] = useState(false)
     const [checkedOpenIds, setCheckedOpenIds] = useState<Set<string>>(new Set())
     const [bindPolicyId, setBindPolicyId] = useState<string>("")
+    const [bindExpiresAt, setBindExpiresAt] = useState("")
+    const [editingBinding, setEditingBinding] = useState<UserQuotaPolicy | null>(null)
+    const [editingExpiresAt, setEditingExpiresAt] = useState("")
 
     // Search users query (triggered on demand, fetch larger set for client-side policy filtering)
     const searchQuery = useQuery({
@@ -820,13 +997,26 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
     })
 
     const batchBindMutation = useMutation({
-        mutationFn: ({ open_ids, quota_policy_id }: { open_ids: string[]; quota_policy_id: number }) =>
-            enterpriseApi.batchBindPolicyToUsers(open_ids, quota_policy_id),
+        mutationFn: ({ open_ids, quota_policy_id, expires_at }: { open_ids: string[]; quota_policy_id: number; expires_at: string | null }) =>
+            enterpriseApi.batchBindPolicyToUsers(open_ids, quota_policy_id, expires_at),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["enterprise", "user-bindings"] })
             setCheckedOpenIds(new Set())
             setBindPolicyId("")
+            setBindExpiresAt("")
             toast.success(t("enterprise.quota.bindSuccess"))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const updateExpiryMutation = useMutation({
+        mutationFn: ({ open_id, expires_at }: { open_id: string; expires_at: string | null }) =>
+            enterpriseApi.updateUserPolicyBindingExpiry(open_id, expires_at),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["enterprise", "user-bindings"] })
+            setEditingBinding(null)
+            setEditingExpiresAt("")
+            toast.success(t("enterprise.quota.expiryUpdated" as never))
         },
         onError: (err: Error) => toast.error(err.message),
     })
@@ -885,9 +1075,31 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
 
     const handleBatchBind = () => {
         if (checkedOpenIds.size === 0 || !bindPolicyId) return
+        if (bindExpiresAt && isPastDateTimeLocal(bindExpiresAt)) {
+            toast.error(t("enterprise.quota.expiryMustBeFuture" as never))
+            return
+        }
         batchBindMutation.mutate({
             open_ids: Array.from(checkedOpenIds),
             quota_policy_id: parseInt(bindPolicyId),
+            expires_at: dateTimeLocalToISO(bindExpiresAt),
+        })
+    }
+
+    const openExpiryEditor = (binding: UserQuotaPolicy) => {
+        setEditingBinding(binding)
+        setEditingExpiresAt(toDateTimeLocal(binding.expires_at))
+    }
+
+    const saveExpiry = () => {
+        if (!editingBinding) return
+        if (editingExpiresAt && isPastDateTimeLocal(editingExpiresAt)) {
+            toast.error(t("enterprise.quota.expiryMustBeFuture" as never))
+            return
+        }
+        updateExpiryMutation.mutate({
+            open_id: editingBinding.open_id,
+            expires_at: dateTimeLocalToISO(editingExpiresAt),
         })
     }
 
@@ -985,6 +1197,17 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
                                             ))}
                                         </SelectContent>
                                     </Select>
+                                    <div className="relative">
+                                        <CalendarClock className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            type="datetime-local"
+                                            value={bindExpiresAt}
+                                            onChange={(e) => setBindExpiresAt(e.target.value)}
+                                            className="w-[210px] pl-8"
+                                            title={t("enterprise.quota.expiresAt" as never)}
+                                            aria-label={t("enterprise.quota.expiresAt" as never)}
+                                        />
+                                    </div>
                                     <Button
                                         onClick={handleBatchBind}
                                         disabled={!bindPolicyId || batchBindMutation.isPending}
@@ -1065,6 +1288,8 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
                                 <TableRow>
                                     <TableHead>{t("enterprise.quota.user")}</TableHead>
                                     <TableHead>{t("enterprise.quota.policy")}</TableHead>
+                                    <TableHead>{t("enterprise.quota.effectiveAt" as never)}</TableHead>
+                                    <TableHead>{t("enterprise.quota.expiresAt" as never)}</TableHead>
                                     <TableHead className="w-24">{t("common.edit")}</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -1077,17 +1302,37 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
                                                 {b.quota_policy?.name || `#${b.quota_policy_id}`}
                                             </Badge>
                                         </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">
+                                            {formatBindingTime(b.effective_at, b.created_at)}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            {b.expires_at ? (
+                                                <span>{formatExpiryTime(b.expires_at, t("enterprise.quota.neverExpires" as never))}</span>
+                                            ) : (
+                                                <Badge variant="outline">{t("enterprise.quota.neverExpires" as never)}</Badge>
+                                            )}
+                                        </TableCell>
                                         <TableCell>
                                             {canManage && (
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-red-500 hover:text-red-600"
-                                                    onClick={() => unbindMutation.mutate(b.open_id)}
-                                                    disabled={unbindMutation.isPending}
-                                                >
-                                                    {t("enterprise.quota.unbind")}
-                                                </Button>
+                                                <div className="flex items-center gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        onClick={() => openExpiryEditor(b)}
+                                                        title={t("enterprise.quota.editExpiry" as never)}
+                                                    >
+                                                        <CalendarClock className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-red-500 hover:text-red-600"
+                                                        onClick={() => unbindMutation.mutate(b.open_id)}
+                                                        disabled={unbindMutation.isPending}
+                                                    >
+                                                        {t("enterprise.quota.unbind")}
+                                                    </Button>
+                                                </div>
                                             )}
                                         </TableCell>
                                     </TableRow>
@@ -1097,6 +1342,20 @@ function UserOverrideTab({ policies, canManage }: { policies: QuotaPolicy[]; can
                     )}
                 </CardContent>
             </Card>
+
+            <BindingExpiryDialog
+                open={!!editingBinding}
+                title={t("enterprise.quota.editExpiry" as never)}
+                description={editingBinding?.user_name || editingBinding?.open_id || ""}
+                value={editingExpiresAt}
+                isSaving={updateExpiryMutation.isPending}
+                onValueChange={setEditingExpiresAt}
+                onClose={() => {
+                    setEditingBinding(null)
+                    setEditingExpiresAt("")
+                }}
+                onSave={saveExpiry}
+            />
         </div>
     )
 }
