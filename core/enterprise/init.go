@@ -29,6 +29,8 @@ func PostDBInit() {
 	// Load role permissions into memory cache
 	LoadRolePermissions()
 
+	go quota.SyncAllPolicyBindingsToTokens()
+
 	// Refresh PPIO and Novita channel model lists in parallel.
 	var wg sync.WaitGroup
 	wg.Add(2)

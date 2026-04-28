@@ -67,7 +67,8 @@ func withGroupTokens(openID string, fn func(tokenID int)) {
 	}
 }
 
-// syncPolicyToToken updates ALL tokens in the user's group with PeriodQuota/PeriodType from the given policy.
+// syncPolicyToToken updates ALL tokens in the user's group with the token-level
+// projection of the quota policy.
 // When BlockAtTier3 is false, Token PeriodQuota is set to 0 so the token-level hard check
 // does not block requests — the enterprise tier system (CheckQuotaTier) handles graduated
 // throttling instead. When BlockAtTier3 is true, PeriodQuota is synced normally as a
@@ -185,6 +186,86 @@ func syncPolicyToDepartmentUsers(departmentID string, policy *models.QuotaPolicy
 	}
 }
 
+// syncPolicyBindingsToTokens refreshes token-level quota fields for every user
+// whose effective policy is policyID. This clears stale hard PeriodQuota values
+// when a policy switches from hard blocking to model/price-based tier control.
+func syncPolicyBindingsToTokens(policyID int, policy *models.QuotaPolicy) {
+	openIDSet := make(map[string]struct{})
+
+	var userBindings []models.UserQuotaPolicy
+	if err := model.DB.Where("quota_policy_id = ?", policyID).Find(&userBindings).Error; err != nil {
+		log.Errorf("sync policy %d user bindings: %v", policyID, err)
+	} else {
+		for _, binding := range userBindings {
+			openIDSet[binding.OpenID] = struct{}{}
+		}
+	}
+
+	var deptBindings []models.DepartmentQuotaPolicy
+	if err := model.DB.Where("quota_policy_id = ?", policyID).Find(&deptBindings).Error; err != nil {
+		log.Errorf("sync policy %d department bindings: %v", policyID, err)
+	} else {
+		for _, binding := range deptBindings {
+			for _, openID := range getDepartmentUserIDsWithoutOverride(binding.DepartmentID) {
+				openIDSet[openID] = struct{}{}
+			}
+		}
+	}
+
+	var groupBindings []models.GroupQuotaPolicy
+	if err := model.DB.Where("quota_policy_id = ?", policyID).Find(&groupBindings).Error; err != nil {
+		log.Errorf("sync policy %d group bindings: %v", policyID, err)
+	} else {
+		for _, binding := range groupBindings {
+			var users []models.FeishuUser
+			if err := model.DB.Where("group_id = ?", binding.GroupID).Find(&users).Error; err != nil {
+				log.Errorf("sync policy %d group %s users: %v", policyID, binding.GroupID, err)
+				continue
+			}
+
+			for _, user := range users {
+				if _, exists := openIDSet[user.OpenID]; exists {
+					continue
+				}
+
+				effective, err := GetPolicyForUser(context.Background(), user.OpenID)
+				if err != nil || effective == nil || effective.ID != policyID {
+					continue
+				}
+
+				openIDSet[user.OpenID] = struct{}{}
+			}
+		}
+	}
+
+	if len(openIDSet) == 0 {
+		return
+	}
+
+	openIDs := make([]string, 0, len(openIDSet))
+	for openID := range openIDSet {
+		openIDs = append(openIDs, openID)
+	}
+
+	syncPolicyToTokenBatch(openIDs, policy)
+}
+
+// SyncAllPolicyBindingsToTokens refreshes token-level quota fields for all
+// currently bound policies. It repairs stale PeriodQuota values left by older
+// policy-sync behavior after an enterprise deployment.
+func SyncAllPolicyBindingsToTokens() {
+	var policies []models.QuotaPolicy
+	if err := model.DB.Find(&policies).Error; err != nil {
+		log.Errorf("sync all quota policy token bindings: %v", err)
+		return
+	}
+
+	for i := range policies {
+		invalidatePolicyCaches(policies[i].ID)
+		syncPolicyBindingsToTokens(policies[i].ID, &policies[i])
+	}
+}
+
 // ListPolicies returns all quota policies with pagination.
 func ListPolicies(c *gin.Context) {
 	page, perPage := utils.ParsePageParams(c)
@@ -292,6 +373,8 @@ func UpdatePolicy(c *gin.Context) {
 
 	// Invalidate caches for all groups using this policy
 	invalidatePolicyCaches(id)
+
+	go syncPolicyBindingsToTokens(id, &update)
 
 	middleware.SuccessResponse(c, update)
 }
@@ -453,9 +536,7 @@ func bindDepartmentPolicyCore(departmentID string, quotaPolicyID int) (*models.D
 		}
 	}
 
-	if policy.PeriodQuota > 0 {
-		go syncPolicyToDepartmentUsers(departmentID, &policy)
-	}
+	go syncPolicyToDepartmentUsers(departmentID, &policy)
 
 	// Notify affected department users about policy change
 	go notifyPolicyChangeDepartment(departmentID, &policy)
@@ -549,9 +630,7 @@ func BindPolicyToUser(c *gin.Context) {
 		return
 	}
 
-	if policy.PeriodQuota > 0 {
-		syncPolicyToToken(req.OpenID, &policy)
-	}
+	syncPolicyToToken(req.OpenID, &policy)
 
 	go notifyPolicyChangeForUser(req.OpenID, &policy)
 
@@ -709,7 +788,7 @@ func BatchBindPolicyToUsers(c *gin.Context) {
 	}
 
 	// Batch sync with bounded concurrency
-	if policy.PeriodQuota > 0 && len(syncOpenIDs) > 0 {
+	if len(syncOpenIDs) > 0 {
 		go syncPolicyToTokenBatch(syncOpenIDs, &policy)
 	}
 
