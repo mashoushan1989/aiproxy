@@ -245,6 +245,7 @@ function QuotaStatusSection({ quota }: { quota: MyQuotaStatus | null }) {
 
 // --- Top Models Column Definitions ---
 type TopModelSortField = keyof ModelUsage
+type TokenStatusFilter = "all" | "enabled" | "disabled"
 
 interface TopModelColumnDef {
     key: TopModelSortField
@@ -1288,6 +1289,7 @@ export default function MyAccessPage() {
     const [quotaStatus, setQuotaStatus] = useState<MyQuotaStatus | null | undefined>(undefined)
     const [tokenTimeRange, setTokenTimeRange] = useState<TimeRange>("7d")
     const [tokenCustomDateRange, setTokenCustomDateRange] = useState<DateRange | undefined>()
+    const [tokenStatusFilter, setTokenStatusFilter] = useState<TokenStatusFilter>("enabled")
 
     const { start: tokenStart, end: tokenEnd } = useMemo(
         () => computeTimeRangeTs(tokenTimeRange, tokenCustomDateRange),
@@ -1358,6 +1360,10 @@ export default function MyAccessPage() {
     const tokens = data?.tokens || []
     const modelGroups = data?.model_groups || []
 
+    const filteredTokens = tokenStatusFilter === "all"
+        ? tokens
+        : tokens.filter(token => token.status === (tokenStatusFilter === "enabled" ? 1 : 2))
+
     return (
         <div className="p-6 space-y-6 max-w-6xl">
             <h1 className="text-2xl font-bold">{t("enterprise.myAccess.title")}</h1>
@@ -1391,6 +1397,16 @@ export default function MyAccessPage() {
                                 {tokenTimeRange === "custom" && (
                                     <DateRangePicker value={tokenCustomDateRange} onChange={setTokenCustomDateRange} />
                                 )}
+                                <Select value={tokenStatusFilter} onValueChange={v => setTokenStatusFilter(v as TokenStatusFilter)}>
+                                    <SelectTrigger className="h-8 w-28 text-xs">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">{t("enterprise.myAccess.statusAll" as never)}</SelectItem>
+                                        <SelectItem value="enabled">{t("enterprise.myAccess.enabled" as never)}</SelectItem>
+                                        <SelectItem value="disabled">{t("enterprise.myAccess.disabled" as never)}</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                         <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
@@ -1403,6 +1419,10 @@ export default function MyAccessPage() {
                     {tokens.length === 0 ? (
                         <p className="text-sm text-muted-foreground text-center py-8">
                             {t("enterprise.myAccess.noKeys")}
+                        </p>
+                    ) : filteredTokens.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">
+                            {t("enterprise.myAccess.noKeysForFilter" as never)}
                         </p>
                     ) : (
                         <div className="border rounded-md overflow-x-auto">
@@ -1420,7 +1440,7 @@ export default function MyAccessPage() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {tokens.map(token => (
+                                    {filteredTokens.map(token => (
                                         <TokenRow
                                             key={token.id}
                                             token={token}

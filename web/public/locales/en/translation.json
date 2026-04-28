@@ -396,6 +396,7 @@
       "usedAmount": "Used Amount",
       "requestCount": "Requests",
       "noKeys": "No API Keys yet. Click the button above to create one.",
+      "noKeysForFilter": "No API keys match the current filters.",
       "quickStart": "Quick Start Guide",
       "availableModels": "Available Models",
       "modelCount": "{{count}} models",

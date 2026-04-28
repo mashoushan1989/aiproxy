@@ -385,6 +385,7 @@
       "usedAmount": "已用额度",
       "requestCount": "请求数",
       "noKeys": "暂无 API Key，请点击上方按钮创建",
+      "noKeysForFilter": "当前筛选条件下暂无 API Key",
       "quickStart": "快速配置指南",
       "availableModels": "可用模型",
       "modelCount": "{{count}} 个模型",
