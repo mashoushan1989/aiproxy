@@ -47,7 +47,12 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		m == mode.AudioTranscription ||
 		m == mode.AudioTranslation ||
 		m == mode.Anthropic ||
-		m == mode.Gemini
+		m == mode.Gemini ||
+		m == mode.Responses ||
+		m == mode.ResponsesGet ||
+		m == mode.ResponsesDelete ||
+		m == mode.ResponsesCancel ||
+		m == mode.ResponsesInputItems
 }
 
 func (a *Adaptor) GetRequestURL(
@@ -138,6 +143,17 @@ func (a *Adaptor) GetRequestURL(
 			Method: http.MethodPost,
 			URL:    url,
 		}, nil
+	case mode.Responses,
+		mode.ResponsesGet,
+		mode.ResponsesDelete,
+		mode.ResponsesCancel,
+		mode.ResponsesInputItems:
+		responsesBaseURL, err := url.JoinPath(u, "/compatible-mode/v1")
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return openai.ResponsesURL(responsesBaseURL, meta.Mode, meta.ResponseID)
 	default:
 		return adaptor.RequestURL{}, fmt.Errorf("unsupported mode: %s", meta.Mode)
 	}
@@ -179,6 +195,12 @@ func (a *Adaptor) ConvertRequest(
 		return anthropic.ConvertRequest(meta, req)
 	case mode.Gemini:
 		return openai.ConvertGeminiRequest(meta, req)
+	case mode.Responses,
+		mode.ResponsesGet,
+		mode.ResponsesDelete,
+		mode.ResponsesCancel,
+		mode.ResponsesInputItems:
+		return openai.ConvertRequest(meta, store, req)
 	default:
 		return adaptor.ConvertResult{}, fmt.Errorf("unsupported mode: %s", meta.Mode)
 	}
@@ -229,6 +251,12 @@ func (a *Adaptor) DoResponse(
 			return openai.GeminiStreamHandler(meta, c, resp)
 		}
 		return openai.GeminiHandler(meta, c, resp)
+	case mode.Responses,
+		mode.ResponsesGet,
+		mode.ResponsesDelete,
+		mode.ResponsesCancel,
+		mode.ResponsesInputItems:
+		return openai.DoResponse(meta, store, c, resp)
 	default:
 		return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(
 			fmt.Sprintf("unsupported mode: %s", meta.Mode),
@@ -240,7 +268,7 @@ func (a *Adaptor) DoResponse(
 
 func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
-		Readme: "OpenAI compatibility\nNetwork search metering support\nRerank support: https://help.aliyun.com/zh/model-studio/text-rerank-api\nSTT support: https://help.aliyun.com/zh/model-studio/sambert-speech-synthesis/\nAnthropic support: /api/v2/apps/claude-code-proxy\nGemini support",
+		Readme: "OpenAI compatibility\nNative Responses API support\nNetwork search metering support\nRerank support: https://help.aliyun.com/zh/model-studio/text-rerank-api\nSTT support: https://help.aliyun.com/zh/model-studio/sambert-speech-synthesis/\nAnthropic support: /api/v2/apps/claude-code-proxy\nGemini support",
 		Models: ModelList,
 	}
 }
