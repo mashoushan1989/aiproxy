@@ -1,22 +1,18 @@
 package openai
 
-import "github.com/labring/aiproxy/core/relay/meta"
+import (
+	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/utils"
+)
 
 type Config struct {
 	MapReasoningToReasoningContent bool `json:"map_reasoning_to_reasoning_content"`
 }
 
+var channelConfigCache utils.ChannelConfigCache[Config]
+
 func loadConfig(meta *meta.Meta) (Config, error) {
-	cfg := Config{}
-	if meta == nil {
-		return cfg, nil
-	}
-
-	if err := meta.ChannelConfigs.LoadConfig(&cfg); err != nil {
-		return Config{}, err
-	}
-
-	return cfg, nil
+	return channelConfigCache.Load(meta, Config{})
 }
 
 func configSchema() map[string]any {
