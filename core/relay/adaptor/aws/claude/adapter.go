@@ -181,7 +181,7 @@ func (a *Adaptor) DoRequest(
 		)
 	}
 
-	awsModelID := awsModelID(meta.ActualModel, region)
+	awsModelID := awsModelIDFromMeta(meta, region)
 
 	awsClient, err := utils.AwsClientFromMeta(meta)
 	if err != nil {
@@ -235,6 +235,10 @@ func (a *Adaptor) DoRequest(
 	return &http.Response{
 		StatusCode: http.StatusOK,
 	}, nil
+}
+
+func awsModelIDFromMeta(meta *meta.Meta, region string) string {
+	return awsModelID(meta.ActualModel, region)
 }
 
 func (a *Adaptor) DoResponse(
