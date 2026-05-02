@@ -157,6 +157,7 @@ REDIS=redis://localhost:6379     # Redis for caching
 ```bash
 BILLING_ENABLED=true           # Enable billing features
 SAVE_ALL_LOG_DETAIL=true     # Log all request details
+GLOBAL_BACKGROUND_TASKS_ENABLED=true  # Default true; set false on non-primary nodes to skip shared background tasks
 ```
 
 ### Advanced Configuration

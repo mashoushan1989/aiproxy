@@ -158,6 +158,7 @@ REDIS=redis://localhost:6379     # Redis 缓存
 ```bash
 BILLING_ENABLED=true           # 启用计费功能
 SAVE_ALL_LOG_DETAIL=true     # 记录所有请求详情
+GLOBAL_BACKGROUND_TASKS_ENABLED=true  # 默认 true；非主节点可设为 false 以跳过共享后台任务
 ```
 
 ### 高级配置

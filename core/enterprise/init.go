@@ -6,6 +6,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/labring/aiproxy/core/common/config"
 	"github.com/labring/aiproxy/core/enterprise/feishu"
 	enterprisenotify "github.com/labring/aiproxy/core/enterprise/notify"
 	"github.com/labring/aiproxy/core/enterprise/novita"
@@ -29,7 +30,11 @@ func PostDBInit() {
 	// Load role permissions into memory cache
 	LoadRolePermissions()
 
-	go quota.SyncAllPolicyBindingsToTokens()
+	if config.GlobalBackgroundTasksEnabled {
+		go quota.SyncAllPolicyBindingsToTokens()
+	} else {
+		log.Info("enterprise global background tasks disabled")
+	}
 
 	// Refresh PPIO and Novita channel model lists in parallel.
 	var wg sync.WaitGroup
@@ -69,15 +74,17 @@ func PostDBInit() {
 
 	ctx := context.Background()
 
-	// Start Feishu organization sync scheduler (every 6 hours)
-	feishu.StartSyncScheduler(ctx)
+	if config.GlobalBackgroundTasksEnabled {
+		// Start Feishu organization sync scheduler (every 6 hours)
+		feishu.StartSyncScheduler(ctx)
 
-	// Expire temporary quota policy overrides and restore fallback policies.
-	quota.StartBindingExpiryScheduler(ctx)
+		// Expire temporary quota policy overrides and restore fallback policies.
+		quota.StartBindingExpiryScheduler(ctx)
 
-	// Start PPIO and Novita daily model sync schedulers (02:00 and 02:15 respectively)
-	ppio.StartSyncScheduler(ctx)
-	novita.StartSyncScheduler(ctx)
+		// Start PPIO and Novita daily model sync schedulers (02:00 and 02:15 respectively)
+		ppio.StartSyncScheduler(ctx)
+		novita.StartSyncScheduler(ctx)
+	}
 
 	log.Info("enterprise module post-DB initialized")
 }

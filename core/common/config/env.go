@@ -8,19 +8,20 @@ import (
 )
 
 var (
-	DebugEnabled         bool
-	DebugSQLEnabled      bool
-	DisableAutoMigrateDB bool
-	AdminKey             string
-	WebPath              string
-	DisableWeb           bool
-	DisableWebRoot       bool
-	FfmpegEnabled        bool
-	InternalToken        string
-	DisableModelConfig   bool
-	Redis                string
-	RedisKeyPrefix       string
-	ConfigFilePath       string
+	DebugEnabled                 bool
+	DebugSQLEnabled              bool
+	DisableAutoMigrateDB         bool
+	AdminKey                     string
+	WebPath                      string
+	DisableWeb                   bool
+	DisableWebRoot               bool
+	FfmpegEnabled                bool
+	InternalToken                string
+	DisableModelConfig           bool
+	Redis                        string
+	RedisKeyPrefix               string
+	ConfigFilePath               string
+	GlobalBackgroundTasksEnabled bool
 
 	// OnCall Lark configuration for urgent alerts
 	OnCallLarkAppID     string
@@ -42,6 +43,7 @@ func ReloadEnv() {
 	Redis = env.String("REDIS", os.Getenv("REDIS_CONN_STRING"))
 	RedisKeyPrefix = os.Getenv("REDIS_KEY_PREFIX")
 	ConfigFilePath = env.String("CONFIG_FILE_PATH", "./config.yaml")
+	GlobalBackgroundTasksEnabled = env.Bool("GLOBAL_BACKGROUND_TASKS_ENABLED", true)
 
 	// OnCall Lark configuration
 	OnCallLarkAppID = os.Getenv("ON_CALL_LARK_APP_ID")

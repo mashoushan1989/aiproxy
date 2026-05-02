@@ -72,27 +72,33 @@ func main() {
 
 	go task.AutoTestBannedModelsTask(ctx)
 
-	log.Info("clean log task started")
+	if config.GlobalBackgroundTasksEnabled {
+		log.Info("global background tasks enabled")
 
-	go task.CleanLogTask(ctx)
+		log.Info("clean log task started")
+
+		go task.CleanLogTask(ctx)
+
+		log.Info("usage alert task started")
+
+		go task.UsageAlertTask(ctx)
+
+		log.Info("update channels balance task started")
+
+		go controller.UpdateChannelsBalance(time.Minute * 10)
+	} else {
+		log.Info("global background tasks disabled")
+	}
 
 	log.Info("detect ip groups task started")
 
 	go task.DetectIPGroupsTask(ctx)
-
-	log.Info("usage alert task started")
-
-	go task.UsageAlertTask(ctx)
 
 	if common.RedisEnabled {
 		log.Info("redis health check task started")
 
 		go task.RedisHealthCheckTask(ctx)
 	}
-
-	log.Info("update channels balance task started")
-
-	go controller.UpdateChannelsBalance(time.Minute * 10)
 
 	batchProcessorCtx, batchProcessorCancel := context.WithCancel(context.Background())
 
