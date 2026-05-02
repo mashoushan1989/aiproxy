@@ -570,6 +570,7 @@ func BatchRecordLogs(
 	amount Amount,
 	user string,
 	metadata map[string]string,
+	promptCacheKey string,
 	upstreamID string,
 	serviceTier string,
 	summaryServiceTier string,
@@ -610,6 +611,7 @@ func BatchRecordLogs(
 				amount,
 				user,
 				metadata,
+				promptCacheKey,
 				upstreamID,
 				serviceTier,
 			)
