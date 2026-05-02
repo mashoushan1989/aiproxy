@@ -112,10 +112,16 @@ func ResponseHandler(
 	// Calculate usage
 	usage := response.ToModelUsage()
 	if response.Usage != nil || usage.WebSearchCount > 0 {
-		return adaptor.DoResponseResult{Usage: usage}, nil
+		return adaptor.DoResponseResult{
+			Usage:      usage,
+			UpstreamID: response.ID,
+		}, nil
 	}
 
-	return adaptor.DoResponseResult{}, nil
+	return adaptor.DoResponseResult{
+		UpstreamID: response.ID,
+		AsyncUsage: responseNeedsAsyncUsage(&response),
+	}, nil
 }
 
 // ResponseStreamHandler handles streaming response
@@ -137,8 +143,9 @@ func ResponseStreamHandler(
 	defer cleanup()
 
 	var (
-		usage      model.Usage
-		responseID string
+		usage        model.Usage
+		responseID   string
+		lastResponse *relaymodel.Response
 	)
 
 	for scanner.Scan() {
@@ -181,6 +188,7 @@ func ResponseStreamHandler(
 
 		// Update usage if available
 		if event.Response != nil {
+			lastResponse = event.Response
 			usage = event.Response.ToModelUsage()
 		}
 
@@ -192,7 +200,28 @@ func ResponseStreamHandler(
 		log.Error("error reading response stream: " + err.Error())
 	}
 
-	return adaptor.DoResponseResult{Usage: usage}, nil
+	return adaptor.DoResponseResult{
+		Usage:      usage,
+		UpstreamID: responseID,
+		AsyncUsage: responseNeedsAsyncUsage(lastResponse),
+	}, nil
+}
+
+func responseNeedsAsyncUsage(response *relaymodel.Response) bool {
+	if response == nil || response.ID == "" || response.Usage != nil {
+		return false
+	}
+
+	if usage := response.ToModelUsage(); usage.TotalTokens > 0 || usage.WebSearchCount > 0 {
+		return false
+	}
+
+	switch response.Status {
+	case relaymodel.ResponseStatusInProgress, relaymodel.ResponseStatusQueued:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetResponseHandler handles GET /v1/responses/{response_id}

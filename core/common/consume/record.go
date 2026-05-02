@@ -24,6 +24,7 @@ func recordConsume(
 	metadata map[string]string,
 	upstreamID string,
 	serviceTier string,
+	asyncUsageStatus model.AsyncUsageStatus,
 ) error {
 	summaryServiceTier := serviceTier
 	if !meta.ModelConfig.ShouldSummaryServiceTier() {
@@ -60,6 +61,7 @@ func recordConsume(
 		meta.PromptCacheKey,
 		upstreamID,
 		serviceTier,
+		asyncUsageStatus,
 		summaryServiceTier,
 		summaryClaudeLongContext,
 	)

@@ -136,6 +136,10 @@ func DoHelper(
 		log.Data["upstream_id"] = result.UpstreamID
 	}
 
+	if result.AsyncUsage {
+		log.Data["async_usage"] = true
+	}
+
 	if !detail.FirstByteAt.IsZero() {
 		ttfb := detail.FirstByteAt.Sub(meta.RequestAt)
 		log.Data["ttfb"] = common.TruncateDuration(ttfb).String()

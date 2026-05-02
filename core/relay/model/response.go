@@ -35,6 +35,7 @@ type ResponseStatus = string
 
 const (
 	ResponseStatusInProgress ResponseStatus = "in_progress"
+	ResponseStatusQueued     ResponseStatus = "queued"
 	ResponseStatusCompleted  ResponseStatus = "completed"
 	ResponseStatusFailed     ResponseStatus = "failed"
 	ResponseStatusIncomplete ResponseStatus = "incomplete"
