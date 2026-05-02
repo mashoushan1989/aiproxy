@@ -28,6 +28,7 @@ import (
 	relaymodel "github.com/labring/aiproxy/core/relay/model"
 	"github.com/labring/aiproxy/core/relay/plugin"
 	"github.com/labring/aiproxy/core/relay/plugin/cache"
+	"github.com/labring/aiproxy/core/relay/plugin/cachefollow"
 	monitorplugin "github.com/labring/aiproxy/core/relay/plugin/monitor"
 	"github.com/labring/aiproxy/core/relay/plugin/patch"
 	"github.com/labring/aiproxy/core/relay/plugin/streamfake"
@@ -110,6 +111,8 @@ func (s *storeImpl) GetStore(group string, tokenID int, id string) (adaptor.Stor
 		TokenID:   store.TokenID,
 		ChannelID: store.ChannelID,
 		Model:     store.Model,
+		CreatedAt: store.CreatedAt,
+		UpdatedAt: store.UpdatedAt,
 		ExpiresAt: store.ExpiresAt,
 	}, nil
 }
@@ -121,6 +124,8 @@ func (s *storeImpl) SaveStore(store adaptor.StoreCache) error {
 		TokenID:   store.TokenID,
 		ChannelID: store.ChannelID,
 		Model:     store.Model,
+		CreatedAt: store.CreatedAt,
+		UpdatedAt: store.UpdatedAt,
 		ExpiresAt: store.ExpiresAt,
 	})
 
@@ -131,6 +136,7 @@ func wrapPlugin(ctx context.Context, mc *model.ModelCaches, a adaptor.Adaptor) a
 	return plugin.WrapperAdaptor(a,
 		monitorplugin.NewGroupMonitorPlugin(),
 		cache.NewCachePlugin(common.RDB),
+		cachefollow.NewCacheFollowPlugin(),
 		streamfake.NewStreamFakePlugin(),
 		timeout.NewTimeoutPlugin(),
 		websearch.NewWebSearchPlugin(func(modelName string) (*model.Channel, error) {

@@ -18,6 +18,7 @@ import (
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/adaptors"
 	"github.com/labring/aiproxy/core/relay/mode"
+	"github.com/labring/aiproxy/core/relay/plugin/cachefollow"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -149,6 +150,7 @@ func getRandomChannel(
 	availableSet []string,
 	modelName string,
 	mode mode.Mode,
+	preferChannelIDs []int,
 	errorRates map[int64]float64,
 	maxErrorRate float64,
 	ignoreChannelMap ...map[int64]struct{},
@@ -221,6 +223,17 @@ func getRandomChannel(
 		migratedChannels = append(migratedChannels, channel)
 	}
 
+	if channel := pickPreferredChannel(
+		migratedChannels,
+		mode,
+		preferChannelIDs,
+		errorRates,
+		maxErrorRate,
+		ignoreChannelMap...,
+	); channel != nil {
+		return channel, migratedChannels, nil
+	}
+
 	channel, err := ignoreChannel(
 		migratedChannels,
 		mode,
@@ -230,6 +243,51 @@ func getRandomChannel(
 	)
 
 	return channel, migratedChannels, err
+}
+
+func pickPreferredChannel(
+	channels []*model.Channel,
+	mode mode.Mode,
+	preferChannelIDs []int,
+	errorRates map[int64]float64,
+	maxErrorRate float64,
+	ignoreChannelIDs ...map[int64]struct{},
+) *model.Channel {
+	if len(preferChannelIDs) == 0 {
+		return nil
+	}
+
+	channelMap := make(map[int]*model.Channel, len(channels))
+	for _, channel := range channels {
+		channelMap[channel.ID] = channel
+	}
+
+	seen := make(map[int]struct{}, len(preferChannelIDs))
+	for _, channelID := range preferChannelIDs {
+		if _, ok := seen[channelID]; ok {
+			continue
+		}
+
+		seen[channelID] = struct{}{}
+
+		channel, ok := channelMap[channelID]
+		if !ok {
+			continue
+		}
+
+		filtered := filterChannels(
+			[]*model.Channel{channel},
+			mode,
+			errorRates,
+			maxErrorRate,
+			ignoreChannelIDs...,
+		)
+		if len(filtered) > 0 {
+			return filtered[0]
+		}
+	}
+
+	return nil
 }
 
 func getPriority(channel *model.Channel, errorRate float64) int32 {
@@ -299,6 +357,7 @@ func getChannelWithFallback(
 	availableSet []string,
 	modelName string,
 	mode mode.Mode,
+	preferChannelIDs []int,
 	errorRates map[int64]float64,
 	ignoreChannelIDs map[int64]struct{},
 ) (*model.Channel, []*model.Channel, error) {
@@ -309,6 +368,7 @@ func getChannelWithFallback(
 			availableSet,
 			modelName,
 			mode,
+			preferChannelIDs,
 			errorRates,
 			ignoreChannelIDs,
 		)
@@ -325,6 +385,7 @@ func getChannelWithFallback(
 			singleSet,
 			modelName,
 			mode,
+			preferChannelIDs,
 			errorRates,
 			maxRetryErrorRate,
 			ignoreChannelIDs,
@@ -358,6 +419,7 @@ func getChannelWithFallback(
 				singleSet,
 				modelName,
 				mode,
+				nil,
 				errorRates,
 				0,
 				ignoreChannelIDs,
@@ -393,6 +455,7 @@ func getChannelFromSingleSet(
 	availableSet []string,
 	modelName string,
 	mode mode.Mode,
+	preferChannelIDs []int,
 	errorRates map[int64]float64,
 	ignoreChannelIDs map[int64]struct{},
 ) (*model.Channel, []*model.Channel, error) {
@@ -401,6 +464,7 @@ func getChannelFromSingleSet(
 		availableSet,
 		modelName,
 		mode,
+		preferChannelIDs,
 		errorRates,
 		maxRetryErrorRate,
 		ignoreChannelIDs,
@@ -418,6 +482,7 @@ func getChannelFromSingleSet(
 		availableSet,
 		modelName,
 		mode,
+		nil,
 		errorRates,
 		0,
 	)
@@ -426,6 +491,7 @@ func getChannelFromSingleSet(
 type initialChannel struct {
 	channel           *model.Channel
 	designatedChannel bool
+	preferChannelIDs  []int
 	ignoreChannelIDs  map[int64]struct{}
 	errorRates        map[int64]float64
 	migratedChannels  []*model.Channel
@@ -487,11 +553,17 @@ func getInitialChannel(c *gin.Context, modelName string, m mode.Mode) (*initialC
 		log.Errorf("get channel model error rates failed: %+v", err)
 	}
 
+	preferChannelIDs := getPreferChannelIDs(c, modelName, m)
+	if len(preferChannelIDs) > 0 {
+		log.Data["prefer_channels"] = fmt.Sprintf("%v", preferChannelIDs)
+	}
+
 	channel, migratedChannels, err := getChannelWithFallback(
 		mc,
 		availableSet,
 		modelName,
 		m,
+		preferChannelIDs,
 		errorRates,
 		ignoreChannelIDs,
 	)
@@ -501,10 +573,114 @@ func getInitialChannel(c *gin.Context, modelName string, m mode.Mode) (*initialC
 
 	return &initialChannel{
 		channel:          channel,
+		preferChannelIDs: preferChannelIDs,
 		ignoreChannelIDs: ignoreChannelIDs,
 		errorRates:       errorRates,
 		migratedChannels: migratedChannels,
 	}, nil
+}
+
+func supportsPromptCacheKeyMode(m mode.Mode) bool {
+	switch m {
+	case mode.Responses, mode.ChatCompletions:
+		return true
+	default:
+		return false
+	}
+}
+
+func supportsCacheFollowMode(m mode.Mode) bool {
+	switch m {
+	case mode.Responses, mode.ChatCompletions, mode.Gemini, mode.Anthropic:
+		return true
+	default:
+		return false
+	}
+}
+
+func getCacheFollowConfig(c *gin.Context) (cachefollow.Config, bool) {
+	modelConfig := middleware.GetModelConfig(c)
+
+	pluginConfig := cachefollow.Config{}
+	if err := modelConfig.LoadPluginConfig(cachefollow.PluginName, &pluginConfig); err != nil {
+		return cachefollow.Config{}, false
+	}
+
+	if !pluginConfig.Enable {
+		return cachefollow.Config{}, false
+	}
+
+	return pluginConfig, true
+}
+
+func getPreferChannelIDs(c *gin.Context, modelName string, m mode.Mode) []int {
+	pluginConfig, ok := getCacheFollowConfig(c)
+	if !supportsCacheFollowMode(m) || !ok {
+		return nil
+	}
+
+	group := middleware.GetGroup(c)
+	token := middleware.GetToken(c)
+	user := middleware.GetRequestUser(c)
+	preferChannelIDs := make([]int, 0, 6)
+	seen := make(map[int]struct{}, 6)
+
+	appendChannelID := func(storeID string) {
+		if storeID == "" {
+			return
+		}
+
+		store, err := model.CacheGetStore(group.ID, token.ID, storeID)
+		if err != nil || store.ChannelID == 0 {
+			return
+		}
+
+		if !store.ExpiresAt.IsZero() && !store.ExpiresAt.After(time.Now()) {
+			return
+		}
+
+		if _, ok := seen[store.ChannelID]; ok {
+			return
+		}
+
+		seen[store.ChannelID] = struct{}{}
+		preferChannelIDs = append(preferChannelIDs, store.ChannelID)
+	}
+
+	if supportsPromptCacheKeyMode(m) {
+		if promptCacheKey := middleware.GetPromptCacheKey(c); promptCacheKey != "" {
+			appendChannelID(
+				model.PromptCacheStoreID(
+					modelName,
+					promptCacheKey,
+					model.CacheKeyTypeStable,
+				),
+			)
+			appendChannelID(
+				model.PromptCacheStoreID(
+					modelName,
+					promptCacheKey,
+					model.CacheKeyTypeRecent,
+				),
+			)
+		}
+	}
+
+	if user != "" {
+		appendChannelID(model.CacheFollowUserStoreID(modelName, user, model.CacheKeyTypeStable))
+		appendChannelID(model.CacheFollowUserStoreID(modelName, user, model.CacheKeyTypeRecent))
+	}
+
+	if pluginConfig.EnableGenericFollow {
+		appendChannelID(model.CacheFollowStoreID(modelName, model.CacheKeyTypeStable))
+		appendChannelID(model.CacheFollowStoreID(modelName, model.CacheKeyTypeRecent))
+	}
+
+	if len(preferChannelIDs) == 0 {
+		return nil
+	}
+
+	return preferChannelIDs
 }
 
 func getWebSearchChannel(
@@ -520,6 +696,7 @@ func getWebSearchChannel(
 		nil,
 		modelName,
 		mode.ChatCompletions,
+		nil,
 		errorRates,
 		ignoreChannelIDs)
 	if err != nil {
