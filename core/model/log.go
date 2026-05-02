@@ -284,12 +284,13 @@ func cleanLog(batchSize int) error {
 }
 
 func optimizeLog() error {
-	switch {
-	case common.UsingSQLite:
+	if common.UsingSQLite {
 		return LogDB.Exec("VACUUM").Error
-	default:
-		return LogDB.Exec("VACUUM ANALYZE logs").Error
 	}
+
+	// PostgreSQL relies on autovacuum/autoanalyze; API instances should not run
+	// explicit VACUUM on shared production tables.
+	return nil
 }
 
 func cleanLogDetail(batchSize int) error {
