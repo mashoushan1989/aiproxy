@@ -169,6 +169,49 @@ func TestConvertGeminiToResponsesRequest_WithFunctionCalls(t *testing.T) {
 	)
 }
 
+func TestConvertGeminiToResponsesRequest_MapsThinkingLevelToReasoningEffort(t *testing.T) {
+	geminiReq := map[string]any{
+		"contents": []map[string]any{
+			{
+				"role": "user",
+				"parts": []map[string]any{
+					{"text": "solve it"},
+				},
+			},
+		},
+		"generationConfig": map[string]any{
+			"thinkingConfig": map[string]any{
+				"thinkingLevel": "high",
+			},
+		},
+	}
+
+	reqBody, err := json.Marshal(geminiReq)
+	require.NoError(t, err)
+
+	httpReq, _ := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/v1beta/models/gemini-pro:generateContent",
+		bytes.NewReader(reqBody),
+	)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	result, err := openai.ConvertGeminiToResponsesRequest(
+		&meta.Meta{ActualModel: "gpt-5-codex"},
+		httpReq,
+	)
+	require.NoError(t, err)
+
+	var responsesReq relaymodel.CreateResponseRequest
+	err = json.NewDecoder(result.Body).Decode(&responsesReq)
+	require.NoError(t, err)
+
+	require.NotNil(t, responsesReq.Reasoning)
+	require.NotNil(t, responsesReq.Reasoning.Effort)
+	assert.Equal(t, "high", *responsesReq.Reasoning.Effort)
+}
+
 func TestConvertGeminiToResponsesRequest_WithToolsRequiredField(t *testing.T) {
 	// Create a Gemini request with tools that have null required field
 	geminiReq := map[string]any{

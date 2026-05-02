@@ -86,6 +86,11 @@ func ConvertClaudeRequestModel(
 		}
 	}
 
+	utils.ApplyReasoningToOpenAIRequest(
+		&openAIRequest,
+		utils.ParseClaudeReasoning(claudeRequest.Thinking),
+	)
+
 	return &openAIRequest, nil
 }
 
@@ -802,6 +807,11 @@ func ConvertClaudeToResponsesRequest(
 	if openAIRequest.ToolChoice != nil {
 		responsesReq.ToolChoice = openAIRequest.ToolChoice
 	}
+
+	utils.ApplyReasoningToResponsesRequest(
+		&responsesReq,
+		utils.ParseOpenAIReasoning(openAIRequest),
+	)
 
 	// Force non-store mode
 	storeValue := false

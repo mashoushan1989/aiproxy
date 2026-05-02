@@ -1045,6 +1045,8 @@ func ConvertChatCompletionToResponsesRequest(
 		responsesReq.User = &chatReq.User
 	}
 
+	utils.ApplyReasoningToResponsesRequest(&responsesReq, utils.ParseOpenAIReasoning(&chatReq))
+
 	// Map metadata
 	if chatReq.Metadata != nil {
 		if metadata, ok := chatReq.Metadata.(map[string]any); ok {

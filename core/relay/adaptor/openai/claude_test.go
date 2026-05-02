@@ -308,6 +308,59 @@ func TestConvertClaudeToResponsesRequest_WithToolsRequiredField(t *testing.T) {
 	}
 }
 
+func TestConvertClaudeRequestMapsThinkingToReasoningEffort(t *testing.T) {
+	httpReq, _ := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/v1/messages",
+		bytes.NewReader([]byte(`{
+			"model": "claude-sonnet-4-5",
+			"messages": [{"role": "user", "content": "solve it"}],
+			"max_tokens": 1024,
+			"thinking": {"type": "enabled", "budget_tokens": 2000}
+		}`)),
+	)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	openAIReq, err := openai.ConvertClaudeRequestModel(
+		&meta.Meta{ActualModel: "gpt-4o"},
+		httpReq,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, openAIReq.ReasoningEffort)
+	assert.Equal(t, "low", *openAIReq.ReasoningEffort)
+	assert.Nil(t, openAIReq.Thinking)
+}
+
+func TestConvertClaudeToResponsesRequestMapsThinkingDisabled(t *testing.T) {
+	httpReq, _ := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/v1/messages",
+		bytes.NewReader([]byte(`{
+			"model": "claude-sonnet-4-5",
+			"messages": [{"role": "user", "content": "solve it"}],
+			"max_tokens": 1024,
+			"thinking": {"type": "disabled"}
+		}`)),
+	)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	result, err := openai.ConvertClaudeToResponsesRequest(
+		&meta.Meta{ActualModel: "gpt-5-codex"},
+		httpReq,
+	)
+	require.NoError(t, err)
+
+	var responsesReq relaymodel.CreateResponseRequest
+	err = json.NewDecoder(result.Body).Decode(&responsesReq)
+	require.NoError(t, err)
+
+	require.NotNil(t, responsesReq.Reasoning)
+	require.NotNil(t, responsesReq.Reasoning.Effort)
+	assert.Equal(t, "none", *responsesReq.Reasoning.Effort)
+}
+
 func TestConvertResponsesToClaudeResponse(t *testing.T) {
 	tests := []struct {
 		name             string

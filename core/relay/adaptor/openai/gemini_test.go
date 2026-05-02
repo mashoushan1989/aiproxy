@@ -161,6 +161,55 @@ func TestConvertGeminiRequest_ToolResponse(t *testing.T) {
 	}
 }
 
+func TestConvertGeminiRequest_MapsThinkingBudgetToReasoningEffort(t *testing.T) {
+	requestJSON := `{
+		"contents": [
+			{"role": "user", "parts": [{"text": "solve it"}]}
+		],
+		"generationConfig": {
+			"thinkingConfig": {
+				"thinkingBudget": 4097
+			}
+		}
+	}`
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/v1beta/models/gemini-pro:generateContent",
+		strings.NewReader(requestJSON),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := openai.ConvertGeminiRequest(&meta.Meta{ActualModel: "gpt-4o"}, req)
+	if err != nil {
+		t.Fatalf("ConvertGeminiRequest failed: %v", err)
+	}
+
+	bodyBytes, _ := io.ReadAll(result.Body)
+
+	var openAIReq relaymodel.GeneralOpenAIRequest
+	if err := json.Unmarshal(bodyBytes, &openAIReq); err != nil {
+		t.Fatalf("failed to unmarshal result body: %v", err)
+	}
+
+	if openAIReq.ReasoningEffort == nil {
+		t.Fatal("expected reasoning_effort to be set")
+	}
+
+	if *openAIReq.ReasoningEffort != relaymodel.ReasoningEffortMedium {
+		t.Fatalf("expected reasoning_effort medium, got %q", *openAIReq.ReasoningEffort)
+	}
+
+	if openAIReq.Thinking != nil {
+		t.Fatalf("expected OpenAI request thinking control field to be cleared, got %#v", openAIReq.Thinking)
+	}
+}
+
 func TestConvertGeminiRequest_MissingModelCall(t *testing.T) {
 	// Scenario: Client sends FunctionResponse but omits the preceding FunctionCall (Model) message.
 	// We must synthesize a fake Assistant message to satisfy OpenAI protocol.
