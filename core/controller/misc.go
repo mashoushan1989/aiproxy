@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/common"
+	"github.com/labring/aiproxy/core/common/config"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
 )
@@ -14,8 +15,10 @@ import (
 var IsEnterprise bool
 
 type StatusData struct {
-	StartTime    int64 `json:"startTime"`
-	IsEnterprise bool  `json:"isEnterprise"`
+	StartTime                    int64  `json:"startTime"`
+	IsEnterprise                 bool   `json:"isEnterprise"`
+	GlobalBackgroundTasksEnabled bool   `json:"globalBackgroundTasksEnabled"`
+	NodeChannelSet               string `json:"nodeChannelSet,omitempty"`
 }
 
 // GetStatus godoc
@@ -28,8 +31,10 @@ type StatusData struct {
 //	@Router			/api/status [get]
 func GetStatus(c *gin.Context) {
 	middleware.SuccessResponse(c, &StatusData{
-		StartTime:    common.StartTime,
-		IsEnterprise: IsEnterprise,
+		StartTime:                    common.StartTime,
+		IsEnterprise:                 IsEnterprise,
+		GlobalBackgroundTasksEnabled: config.GlobalBackgroundTasksEnabled,
+		NodeChannelSet:               config.GetNodeChannelSet(),
 	})
 }
 
@@ -65,7 +70,9 @@ func GetHealth(c *gin.Context) {
 	}
 
 	middleware.SuccessResponse(c, &StatusData{
-		StartTime:    common.StartTime,
-		IsEnterprise: IsEnterprise,
+		StartTime:                    common.StartTime,
+		IsEnterprise:                 IsEnterprise,
+		GlobalBackgroundTasksEnabled: config.GlobalBackgroundTasksEnabled,
+		NodeChannelSet:               config.GetNodeChannelSet(),
 	})
 }

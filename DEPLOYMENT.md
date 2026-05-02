@@ -100,7 +100,45 @@ https://jump-new.paigod.work/luna/?login_to=fa179797-95eb-4a78-a4b1-d5621d9cfa17
 
 > 需先登录 JumpServer（`https://jump-new.paigod.work`），拥有该资产的连接权限。
 
-**方式二：SSH 直连**
+**方式二：通过 JumpServer SSH 连接（推荐）**
+
+通过 JumpServer 堡垒机的 SSH 端口（2222）连接，无需服务器 22 端口白名单：
+
+```bash
+# SSH 连接格式：<JumpServer用户>@<系统用户>@<服务器公网IP>@<JumpServer地址>
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@1.13.81.31"@jump-new.paigod.work
+
+# 远程执行命令
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@1.13.81.31"@jump-new.paigod.work "sudo docker logs --tail 100 aiproxy-active"
+```
+
+推荐在 `~/.ssh/config` 中配置别名，简化日常操作：
+
+```ssh-config
+Host aiproxy-prod
+    HostName jump-new.paigod.work
+    Port 2222
+    User ash@ppuser@1.13.81.31
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 4h
+```
+
+配置后可直接使用：
+
+```bash
+ssh aiproxy-prod                              # 交互式登录
+ssh aiproxy-prod "sudo docker logs -f aiproxy-active"  # 远程执行
+```
+
+> **[注意]**
+> - `User` 格式为 `<JumpServer用户名>@<系统用户>@<目标服务器IP>`
+> - SSH 密钥需在 JumpServer 平台注册（而非直接添加到服务器 authorized_keys）
+> - 需拥有 JumpServer 上该资产的连接权限
+
+**方式三：SSH 直连（需 IP 白名单）**
 
 服务器公网 IP `1.13.81.31`，端口 22，仅支持密钥认证（`PermitRootLogin no`，使用 `ppuser` 用户）：
 
@@ -115,7 +153,7 @@ ssh ppuser@1.13.81.31 "sudo <command>"
 > **[安全提醒]**
 > - 服务器禁用了 root SSH 登录，所有操作通过 `ppuser` + `sudo` 执行
 > - SSH 公钥需提前添加至服务器 `/home/ppuser/.ssh/authorized_keys`
-> - 安全组应限制 22 端口仅允许管理员 IP 访问
+> - 安全组限制 22 端口仅允许管理员 IP 访问，非白名单 IP 连接会超时
 
 ### 云数据库（推荐，免运维）
 
@@ -1245,12 +1283,53 @@ curl -s http://localhost:81/v1/models -H "Authorization: Bearer sk-xxx"
 | **域名** | `ai.pplabs.tech`（企业前端）+ `apiproxy.pplabs.tech`（API） |
 | **AI Proxy 运行方式** | Docker 容器 `aiproxy-active`（同国内零停机模式） |
 | **代码路径** | `/data/aiproxy` |
-| **环境变量文件** | `/data/aiproxy/.env`（含 `NODE_CHANNEL_SET=overseas`） |
+| **环境变量文件** | `/data/aiproxy/.env`（含 `NODE_CHANNEL_SET=overseas`、`GLOBAL_BACKGROUND_TASKS_ENABLED=false`） |
 | **PostgreSQL** | 通过 WireGuard 连回国内主库（`10.0.0.1:5432`） |
 | **Redis** | Docker 容器，`127.0.0.1:6379`（本地缓存） |
 | **WireGuard** | 接口 `wg0`，本端 `10.0.0.2`，对端 `10.0.0.1` |
 
 ### 11.2 SSH 登录
+
+**推荐：通过 JumpServer 连接（无需 IP 白名单）**
+
+```bash
+# 国内节点
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@1.13.81.31"@jump-new.paigod.work
+
+# 海外节点
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@52.35.158.131"@jump-new.paigod.work
+
+# 远程执行命令
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@1.13.81.31"@jump-new.paigod.work "sudo docker logs --tail 50 aiproxy-active"
+```
+
+推荐配置 SSH 别名（`~/.ssh/config`）：
+
+```ssh-config
+Host aiproxy-prod
+    HostName jump-new.paigod.work
+    Port 2222
+    User ash@ppuser@1.13.81.31
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 4h
+
+Host aiproxy-overseas
+    HostName jump-new.paigod.work
+    Port 2222
+    User ash@ppuser@52.35.158.131
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+    ControlMaster auto
+    ControlPath ~/.ssh/cm-%r@%h:%p
+    ControlPersist 4h
+```
+
+配置后：`ssh aiproxy-prod` / `ssh aiproxy-overseas`。
+
+**备选：SSH 直连（需 IP 在安全组白名单内）**
 
 ```bash
 # 国内节点
@@ -1260,7 +1339,7 @@ ssh ppuser@1.13.81.31
 ssh ppuser@52.35.158.131
 ```
 
-> **注意：** 服务器禁用了 root SSH 登录，所有操作通过 `ppuser` + `sudo` 执行。
+> **注意：** 服务器禁用了 root SSH 登录，所有操作通过 `ppuser` + `sudo` 执行。安全组限制 22 端口仅允许管理员 IP 访问，非白名单 IP 连接会超时。
 
 ### 11.3 Git 操作
 
@@ -1423,7 +1502,42 @@ sudo docker compose -f /data/docker-compose.yml restart postgres
 sudo docker compose -f /data/docker-compose.yml restart redis
 ```
 
-### 11.10 完整快速部署流程（一键 Copy）
+### 11.10 全局后台任务主从切换
+
+> 共享后台任务（日志清理、用量告警、渠道余额更新、PPIO/Novita 模型同步、飞书组织同步、配额过期等）默认只在国内主节点运行（`GLOBAL_BACKGROUND_TASKS_ENABLED=true`），海外节点设为 `false`。
+
+#### 故障切换：国内节点宕机，海外临时接管
+
+```bash
+# 1. 登录海外节点
+ssh aiproxy-overseas  # 或 ssh -p 2222 "ash@ppuser@52.35.158.131"@jump-new.paigod.work
+
+# 2. 启用全局后台任务
+sudo sed -i 's/GLOBAL_BACKGROUND_TASKS_ENABLED=false/GLOBAL_BACKGROUND_TASKS_ENABLED=true/' /data/aiproxy/.env
+
+# 3. 重启服务使配置生效
+cd /data/aiproxy && sudo bash scripts/deploy.sh --no-pull
+
+# 4. 确认日志出现 "global background tasks enabled"
+sudo docker logs --tail 30 aiproxy-active | grep "global background"
+```
+
+#### 回切：国内节点恢复后
+
+```bash
+# 1. 先关闭海外节点的全局任务（避免双主）
+ssh aiproxy-overseas
+sudo sed -i 's/GLOBAL_BACKGROUND_TASKS_ENABLED=true/GLOBAL_BACKGROUND_TASKS_ENABLED=false/' /data/aiproxy/.env
+cd /data/aiproxy && sudo bash scripts/deploy.sh --no-pull
+
+# 2. 确认国内节点 .env 中 GLOBAL_BACKGROUND_TASKS_ENABLED=true（默认值），部署/重启
+ssh aiproxy-prod
+cd /data/aiproxy && sudo bash scripts/deploy.sh
+```
+
+> **⚠️ 切勿同时让两个节点都设为 `true`**，否则会出现重复告警、重复日志清理、重复飞书同步等问题。PPIO/Novita 同步有 advisory lock 保护不会数据损坏，但仍会产生不必要的锁竞争和日志噪音。
+
+### 11.11 完整快速部署流程（一键 Copy）
 
 #### 方案 0：Docker 零停机部署（推荐）
 
@@ -1550,6 +1664,7 @@ sudo systemctl status aiproxy --no-pager
 - [ ] PostgreSQL 连接通过 WireGuard 到国内主库（`10.0.0.1:5432`），连接正常
 - [ ] Redis 本地 Docker 容器已启动
 - [ ] `/data/aiproxy/.env` 包含 `NODE_CHANNEL_SET=overseas`
+- [ ] `/data/aiproxy/.env` 包含 `GLOBAL_BACKGROUND_TASKS_ENABLED=false`（海外从节点不运行共享后台任务）
 - [ ] `/data/aiproxy/.env` 中 `ENTERPRISE_BASE_URL=https://apiproxy.pplabs.tech/v1`（海外节点必须用 pplabs.tech 域名）
 - [ ] `/data/aiproxy/.env` 中 `FEISHU_REDIRECT_URI` / `FEISHU_FRONTEND_URL` 指向 `ai.pplabs.tech`（如海外支持飞书登录）
 - [ ] Nginx `aiproxy-upstream.conf` 已安装到 `/etc/nginx/conf.d/`
@@ -1769,6 +1884,7 @@ LOG_SQL_DSN=postgres://postgres:xxx@10.x.x.1:5432/aiproxy
 REDIS_CONN_STRING=redis://127.0.0.1:6379
 
 NODE_CHANNEL_SET=overseas
+GLOBAL_BACKGROUND_TASKS_ENABLED=false
 BATCH_UPDATE_INTERVAL_SECONDS=10
 
 FEISHU_APP_ID=xxx

@@ -32,49 +32,47 @@ func PostDBInit() {
 
 	if config.GlobalBackgroundTasksEnabled {
 		go quota.SyncAllPolicyBindingsToTokens()
-	} else {
-		log.Info("enterprise global background tasks disabled")
 	}
 
-	// Refresh PPIO and Novita channel model lists in parallel.
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-
-		if _, err := ppio.EnsurePPIOChannels(
-			false,
-			nil,
-			nil,
-			ppio.PPIOConfigResult{},
-			nil,
-			nil,
-		); err != nil {
-			log.Warnf("PPIO channel refresh on startup: %v", err)
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		if _, err := novita.EnsureNovitaChannels(
-			false,
-			nil,
-			nil,
-			novita.NovitaConfigResult{},
-			nil,
-			nil,
-		); err != nil {
-			log.Warnf("Novita channel refresh on startup: %v", err)
-		}
-	}()
-
-	wg.Wait()
-
-	ctx := context.Background()
-
 	if config.GlobalBackgroundTasksEnabled {
+		// Refresh PPIO and Novita channel model lists in parallel (shared DB write).
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			if _, err := ppio.EnsurePPIOChannels(
+				false,
+				nil,
+				nil,
+				ppio.PPIOConfigResult{},
+				nil,
+				nil,
+			); err != nil {
+				log.Warnf("PPIO channel refresh on startup: %v", err)
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			if _, err := novita.EnsureNovitaChannels(
+				false,
+				nil,
+				nil,
+				novita.NovitaConfigResult{},
+				nil,
+				nil,
+			); err != nil {
+				log.Warnf("Novita channel refresh on startup: %v", err)
+			}
+		}()
+
+		wg.Wait()
+
+		ctx := context.Background()
+
 		// Start Feishu organization sync scheduler (every 6 hours)
 		feishu.StartSyncScheduler(ctx)
 
@@ -84,6 +82,11 @@ func PostDBInit() {
 		// Start PPIO and Novita daily model sync schedulers (02:00 and 02:15 respectively)
 		ppio.StartSyncScheduler(ctx)
 		novita.StartSyncScheduler(ctx)
+	} else {
+		log.WithFields(log.Fields{
+			"NODE_CHANNEL_SET":                 config.GetNodeChannelSet(),
+			"GLOBAL_BACKGROUND_TASKS_ENABLED":  false,
+		}).Info("enterprise global background tasks disabled, skipped: PPIO/Novita refresh, Feishu sync, quota expiry, PPIO/Novita schedulers")
 	}
 
 	log.Info("enterprise module post-DB initialized")

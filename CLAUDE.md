@@ -123,11 +123,22 @@ ssh ppuser@52.35.158.131 "cd /data/aiproxy && sudo bash -c 'export NODE_TYPE=ove
 
 **Server access & operations:**
 ```bash
-# SSH login — domestic node
-ssh ppuser@1.13.81.31
+# SSH login via JumpServer (recommended, no IP whitelist needed)
+# Format: ssh -p 2222 "<jumpserver_user>@<system_user>@<server_ip>"@jump-new.paigod.work
+ssh -p 2222 -i ~/.ssh/id_ed25519 "ash@ppuser@1.13.81.31"@jump-new.paigod.work
 
-# SSH login — overseas node (AWS US West)
-ssh ppuser@52.35.158.131
+# With SSH config alias (add to ~/.ssh/config):
+#   Host aiproxy-prod
+#       HostName jump-new.paigod.work
+#       Port 2222
+#       User ash@ppuser@1.13.81.31
+#       IdentityFile ~/.ssh/id_ed25519
+#       ServerAliveInterval 60
+ssh aiproxy-prod
+
+# SSH direct (requires IP whitelist in security group)
+ssh ppuser@1.13.81.31              # domestic node
+ssh ppuser@52.35.158.131           # overseas node (AWS US West)
 
 # Git pull on server (requires SSH key passthrough)
 cd /data/aiproxy

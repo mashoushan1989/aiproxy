@@ -87,7 +87,10 @@ func main() {
 
 		go controller.UpdateChannelsBalance(time.Minute * 10)
 	} else {
-		log.Info("global background tasks disabled")
+		log.WithFields(log.Fields{
+			"NODE_CHANNEL_SET":                config.GetNodeChannelSet(),
+			"GLOBAL_BACKGROUND_TASKS_ENABLED": false,
+		}).Info("global background tasks disabled, skipped: CleanLog, UsageAlert, UpdateChannelsBalance")
 	}
 
 	log.Info("detect ip groups task started")
