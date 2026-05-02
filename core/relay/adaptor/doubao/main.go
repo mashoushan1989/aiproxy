@@ -23,7 +23,7 @@ func init() {
 func GetRequestURL(meta *meta.Meta) (adaptor.RequestURL, error) {
 	u := meta.Channel.BaseURL
 	switch meta.Mode {
-	case mode.ChatCompletions, mode.Anthropic:
+	case mode.ChatCompletions, mode.Anthropic, mode.Gemini:
 		if strings.HasPrefix(meta.ActualModel, "bot-") {
 			url, err := url.JoinPath(u, "/api/v3/bots/chat/completions")
 			if err != nil {
@@ -67,6 +67,17 @@ func GetRequestURL(meta *meta.Meta) (adaptor.RequestURL, error) {
 			Method: http.MethodPost,
 			URL:    url,
 		}, nil
+	case mode.Responses,
+		mode.ResponsesGet,
+		mode.ResponsesDelete,
+		mode.ResponsesCancel,
+		mode.ResponsesInputItems:
+		responsesBaseURL, err := url.JoinPath(u, "/api/v3")
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return openai.ResponsesURL(responsesBaseURL, meta.Mode, meta.ResponseID)
 	default:
 		return adaptor.RequestURL{}, fmt.Errorf("unsupported relay mode %d for doubao", meta.Mode)
 	}
@@ -85,12 +96,18 @@ func (a *Adaptor) DefaultBaseURL() string {
 func (a *Adaptor) SupportMode(m mode.Mode) bool {
 	return m == mode.ChatCompletions ||
 		m == mode.Anthropic ||
-		m == mode.Embeddings
+		m == mode.Gemini ||
+		m == mode.Embeddings ||
+		m == mode.Responses ||
+		m == mode.ResponsesGet ||
+		m == mode.ResponsesDelete ||
+		m == mode.ResponsesCancel ||
+		m == mode.ResponsesInputItems
 }
 
 func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
-		Readme: "Doubao / Volcano Engine endpoint\nSupports bot-style models and network search metering fields",
+		Readme: "Doubao / Volcano Engine endpoint\nSupports bot-style models, native Responses API, Gemini-compatible request conversion, and network search metering fields",
 		Models: ModelList,
 	}
 }
@@ -116,6 +133,8 @@ func (a *Adaptor) ConvertRequest(
 		return openai.ConvertEmbeddingsRequest(meta, req, true)
 	case mode.ChatCompletions:
 		return ConvertChatCompletionsRequest(meta, req)
+	case mode.Gemini:
+		return openai.ConvertGeminiRequest(meta, req)
 	default:
 		return openai.ConvertRequest(meta, store, req)
 	}
@@ -152,6 +171,11 @@ func (a *Adaptor) DoResponse(
 			resp,
 			embeddingPreHandler,
 		)
+	case mode.Gemini:
+		if utils.IsStreamResponse(resp) {
+			return openai.GeminiStreamHandler(meta, c, resp)
+		}
+		return openai.GeminiHandler(meta, c, resp)
 	default:
 		return openai.DoResponse(meta, store, c, resp)
 	}
