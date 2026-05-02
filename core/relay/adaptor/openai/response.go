@@ -110,9 +110,8 @@ func ResponseHandler(
 	_, _ = c.Writer.Write(responseBody)
 
 	// Calculate usage
-	if response.Usage != nil {
-		usage := response.Usage.ToModelUsage()
-
+	usage := response.ToModelUsage()
+	if response.Usage != nil || usage.WebSearchCount > 0 {
 		return adaptor.DoResponseResult{Usage: usage}, nil
 	}
 
@@ -181,8 +180,8 @@ func ResponseStreamHandler(
 		}
 
 		// Update usage if available
-		if event.Response != nil && event.Response.Usage != nil {
-			usage = event.Response.Usage.ToModelUsage()
+		if event.Response != nil {
+			usage = event.Response.ToModelUsage()
 		}
 
 		// Forward the event
