@@ -3,7 +3,7 @@ package model
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
+	"encoding/json"
 	"strings"
 )
 
@@ -38,7 +38,12 @@ func HashedStoreID(prefix string, parts ...string) string {
 		return ""
 	}
 
-	sum := sha256.Sum256(fmt.Appendf(nil, "%s", strings.Join(parts, ":")))
+	payload, err := json.Marshal(parts)
+	if err != nil {
+		return ""
+	}
+
+	sum := sha256.Sum256(payload)
 
 	return StoreID(prefix, hex.EncodeToString(sum[:]))
 }
