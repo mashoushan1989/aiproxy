@@ -245,7 +245,6 @@ func startAsyncUsageClaimRenewal(ctx context.Context, info *model.AsyncUsageInfo
 
 func completeAsyncUsage(ctx context.Context, info *model.AsyncUsageInfo, usage model.Usage) error {
 	price := info.Price
-	price.PerRequestPrice = 0
 
 	amount := consume.CalculateAmountDetail(
 		http.StatusOK,
@@ -262,29 +261,45 @@ func completeAsyncUsage(ctx context.Context, info *model.AsyncUsageInfo, usage m
 
 		info.BalanceConsumed = true
 		if err := model.MarkAsyncUsageBalanceConsumed(info); err != nil {
-			return fmt.Errorf("update async usage balance consumed: %w", err)
+			notify.ErrorThrottle(
+				"asyncUsageMarkBalanceConsumed",
+				time.Minute*5,
+				"mark async usage balance consumed failed",
+				err.Error(),
+			)
 		}
 	}
 
-	if err := model.UpdateLogUsageByRequestID(info.RequestID, usage, amount); err != nil {
+	summaryUsage := usage
+	summaryAmount := amount
+	if deltaUsage, deltaAmount, err := model.UpdateLogUsageByRequestIDDelta(
+		info.RequestID,
+		usage,
+		amount,
+	); err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("update async usage log: %w", err)
 		}
+	} else {
+		summaryUsage = deltaUsage
+		summaryAmount = deltaAmount
 	}
 
-	model.BatchUpdateSummaryOnlyUsage(
-		time.Now(),
-		info.RequestAt,
-		info.GroupID,
-		info.ChannelID,
-		info.Model,
-		info.TokenID,
-		info.TokenName,
-		usage,
-		amount,
-		info.ServiceTier,
-		model.IsClaudeLongContextSummary(info.Model, usage),
-	)
+	if !asyncUsageCompletionDeltaIsZero(summaryUsage, summaryAmount) {
+		model.BatchUpdateSummaryOnlyUsage(
+			time.Now(),
+			info.RequestAt,
+			info.GroupID,
+			info.ChannelID,
+			info.Model,
+			info.TokenID,
+			info.TokenName,
+			summaryUsage,
+			summaryAmount,
+			info.ServiceTier,
+			model.IsClaudeLongContextSummary(info.Model, summaryUsage),
+		)
+	}
 
 	info.Status = model.AsyncUsageStatusCompleted
 	info.Usage = usage
@@ -301,6 +316,10 @@ func completeAsyncUsage(ctx context.Context, info *model.AsyncUsageInfo, usage m
 	}
 
 	return nil
+}
+
+func asyncUsageCompletionDeltaIsZero(usage model.Usage, amount model.Amount) bool {
+	return usage == (model.Usage{}) && amount == (model.Amount{})
 }
 
 func scheduleAsyncUsageRetry(info *model.AsyncUsageInfo, err error) {
@@ -360,9 +379,26 @@ func consumeAsyncUsageGroupBalance(
 		return nil
 	}
 
-	_, err = consumer.PostGroupConsume(ctx, info.TokenName, amount)
+	if idempotentConsumer, ok := consumer.(balance.IdempotentPostGroupConsumer); ok {
+		_, err = idempotentConsumer.PostGroupConsumeWithKey(
+			ctx,
+			info.TokenName,
+			amount,
+			asyncUsageBalanceIdempotencyKey(info),
+		)
+	} else {
+		_, err = consumer.PostGroupConsume(ctx, info.TokenName, amount)
+	}
 
 	return err
+}
+
+func asyncUsageBalanceIdempotencyKey(info *model.AsyncUsageInfo) string {
+	if info == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("async_usage:%d:%s", info.ID, info.RequestID)
 }
 
 func recordAsyncUsageConsumeError(info *model.AsyncUsageInfo, amount float64, err error) {

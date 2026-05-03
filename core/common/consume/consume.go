@@ -98,7 +98,13 @@ func Consume(
 		return
 	}
 
+	recordUsage := usage
 	amountDetail := CalculateAmountDetail(code, usage, modelPrice, serviceTier)
+	if asyncUsageStatus == model.AsyncUsageStatusPending {
+		recordUsage = model.Usage{}
+		amountDetail = model.Amount{}
+	}
+
 	if downstreamResult {
 		// TODO: add record actual consume amount
 		_ = consumeAmount(ctx, amountDetail.UsedAmount, postGroupConsumer, meta)
@@ -110,7 +116,7 @@ func Consume(
 		)
 	}
 
-	selectedModelPrice := modelPrice.SelectConditionalPrice(usage, serviceTier)
+	selectedModelPrice := modelPrice.SelectConditionalPrice(recordUsage, serviceTier)
 	selectedModelPrice.ConditionalPrices = nil
 
 	err := recordConsume(
@@ -118,7 +124,7 @@ func Consume(
 		meta,
 		code,
 		firstByteAt,
-		usage,
+		recordUsage,
 		selectedModelPrice,
 		content,
 		ip,

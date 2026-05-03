@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AsyncUsageStatus int
@@ -197,6 +198,7 @@ func CompleteClaimedAsyncUsageInfo(
 		Usage:           usage,
 		Amount:          amount,
 		Error:           "",
+		BalanceConsumed: info.BalanceConsumed,
 		ProcessingToken: "",
 		UpdatedAt:       time.Now(),
 	}
@@ -218,6 +220,7 @@ func CompleteClaimedAsyncUsageInfo(
 			"WebSearchAmount",
 			"UsedAmount",
 			"Error",
+			"BalanceConsumed",
 			"ProcessingToken",
 			"UpdatedAt",
 		).
@@ -252,16 +255,67 @@ func updateClaimedAsyncUsageInfo(info *AsyncUsageInfo, updates map[string]any) e
 }
 
 func UpdateLogUsageByRequestID(requestID string, usage Usage, amount Amount) error {
-	var logEntry Log
-	if err := LogDB.Where("request_id = ?", requestID).First(&logEntry).Error; err != nil {
-		return err
+	_, _, err := UpdateLogUsageByRequestIDDelta(requestID, usage, amount)
+	return err
+}
+
+func UpdateLogUsageByRequestIDDelta(requestID string, usage Usage, amount Amount) (Usage, Amount, error) {
+	var deltaUsage Usage
+	var deltaAmount Amount
+
+	err := LogDB.Transaction(func(tx *gorm.DB) error {
+		var logEntry Log
+		if err := tx.
+			Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("request_id = ?", requestID).
+			First(&logEntry).
+			Error; err != nil {
+			return err
+		}
+
+		deltaUsage = usage.Sub(logEntry.Usage)
+		deltaAmount = amount.Sub(logEntry.Amount)
+
+		updates := &Log{
+			Usage:            usage,
+			Amount:           amount,
+			AsyncUsageStatus: AsyncUsageStatusCompleted,
+		}
+
+		return tx.
+			Model(&Log{}).
+			Where("id = ?", logEntry.ID).
+			Select(
+				"InputTokens",
+				"ImageInputTokens",
+				"AudioInputTokens",
+				"OutputTokens",
+				"ImageOutputTokens",
+				"CachedTokens",
+				"CacheCreationTokens",
+				"ReasoningTokens",
+				"TotalTokens",
+				"WebSearchCount",
+				"InputAmount",
+				"ImageInputAmount",
+				"AudioInputAmount",
+				"OutputAmount",
+				"ImageOutputAmount",
+				"CachedAmount",
+				"CacheCreationAmount",
+				"ReasoningAmount",
+				"WebSearchAmount",
+				"UsedAmount",
+				"AsyncUsageStatus",
+			).
+			Updates(updates).
+			Error
+	})
+	if err != nil {
+		return Usage{}, Amount{}, err
 	}
 
-	logEntry.Usage = usage
-	logEntry.Amount.Add(amount)
-	logEntry.AsyncUsageStatus = AsyncUsageStatusCompleted
-
-	return LogDB.Save(&logEntry).Error
+	return deltaUsage, deltaAmount, nil
 }
 
 func UpdateLogAsyncUsageStatusByRequestID(

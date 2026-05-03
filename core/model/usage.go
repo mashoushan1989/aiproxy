@@ -454,6 +454,21 @@ func (u *Usage) Add(other Usage) {
 	u.WebSearchCount += other.WebSearchCount
 }
 
+func (u Usage) Sub(other Usage) Usage {
+	return Usage{
+		InputTokens:         u.InputTokens - other.InputTokens,
+		ImageInputTokens:    u.ImageInputTokens - other.ImageInputTokens,
+		AudioInputTokens:    u.AudioInputTokens - other.AudioInputTokens,
+		OutputTokens:        u.OutputTokens - other.OutputTokens,
+		ImageOutputTokens:   u.ImageOutputTokens - other.ImageOutputTokens,
+		CachedTokens:        u.CachedTokens - other.CachedTokens,
+		CacheCreationTokens: u.CacheCreationTokens - other.CacheCreationTokens,
+		ReasoningTokens:     u.ReasoningTokens - other.ReasoningTokens,
+		TotalTokens:         u.TotalTokens - other.TotalTokens,
+		WebSearchCount:      u.WebSearchCount - other.WebSearchCount,
+	}
+}
+
 type Amount struct {
 	InputAmount         float64 `json:"input_amount,omitempty"`
 	ImageInputAmount    float64 `json:"image_input_amount,omitempty"`
@@ -498,4 +513,39 @@ func (a *Amount) Add(other Amount) {
 	a.UsedAmount = decimal.NewFromFloat(a.UsedAmount).
 		Add(decimal.NewFromFloat(other.UsedAmount)).
 		InexactFloat64()
+}
+
+func (a Amount) Sub(other Amount) Amount {
+	return Amount{
+		InputAmount: decimal.NewFromFloat(a.InputAmount).
+			Sub(decimal.NewFromFloat(other.InputAmount)).
+			InexactFloat64(),
+		ImageInputAmount: decimal.NewFromFloat(a.ImageInputAmount).
+			Sub(decimal.NewFromFloat(other.ImageInputAmount)).
+			InexactFloat64(),
+		AudioInputAmount: decimal.NewFromFloat(a.AudioInputAmount).
+			Sub(decimal.NewFromFloat(other.AudioInputAmount)).
+			InexactFloat64(),
+		OutputAmount: decimal.NewFromFloat(a.OutputAmount).
+			Sub(decimal.NewFromFloat(other.OutputAmount)).
+			InexactFloat64(),
+		ImageOutputAmount: decimal.NewFromFloat(a.ImageOutputAmount).
+			Sub(decimal.NewFromFloat(other.ImageOutputAmount)).
+			InexactFloat64(),
+		ReasoningAmount: decimal.NewFromFloat(a.ReasoningAmount).
+			Sub(decimal.NewFromFloat(other.ReasoningAmount)).
+			InexactFloat64(),
+		CachedAmount: decimal.NewFromFloat(a.CachedAmount).
+			Sub(decimal.NewFromFloat(other.CachedAmount)).
+			InexactFloat64(),
+		CacheCreationAmount: decimal.NewFromFloat(a.CacheCreationAmount).
+			Sub(decimal.NewFromFloat(other.CacheCreationAmount)).
+			InexactFloat64(),
+		WebSearchAmount: decimal.NewFromFloat(a.WebSearchAmount).
+			Sub(decimal.NewFromFloat(other.WebSearchAmount)).
+			InexactFloat64(),
+		UsedAmount: decimal.NewFromFloat(a.UsedAmount).
+			Sub(decimal.NewFromFloat(other.UsedAmount)).
+			InexactFloat64(),
+	}
 }
