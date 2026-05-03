@@ -37,5 +37,23 @@ func TestParseClaudeReasoningDisabled(t *testing.T) {
 
 	assert.True(t, reasoning.Specified)
 	assert.True(t, reasoning.Disabled)
-	assert.Equal(t, relaymodel.ReasoningEffortNone, utils.ReasoningToOpenAIEffort(reasoning))
+	assert.Empty(t, utils.ReasoningToOpenAIEffort(reasoning))
+}
+
+func TestReasoningToOpenAIEffortClampsUnsupportedValues(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, relaymodel.ReasoningEffortLow, utils.ReasoningToOpenAIEffort(
+		relaymodel.NormalizedReasoning{
+			Specified: true,
+			Effort:    relaymodel.ReasoningEffortMinimal,
+		},
+	))
+
+	assert.Equal(t, relaymodel.ReasoningEffortHigh, utils.ReasoningToOpenAIEffort(
+		relaymodel.NormalizedReasoning{
+			Specified: true,
+			Effort:    relaymodel.ReasoningEffortXHigh,
+		},
+	))
 }

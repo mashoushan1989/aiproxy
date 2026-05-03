@@ -141,15 +141,15 @@ func ReasoningToOpenAIEffort(
 	reasoning relaymodel.NormalizedReasoning,
 ) relaymodel.ReasoningEffort {
 	if reasoning.Disabled {
-		return relaymodel.ReasoningEffortNone
+		return ""
 	}
 
 	if reasoning.Effort != "" {
-		return reasoning.Effort
+		return clampReasoningToOpenAIEffort(reasoning.Effort)
 	}
 
 	if reasoning.BudgetTokens != nil {
-		return BudgetToEffort(*reasoning.BudgetTokens)
+		return clampReasoningToOpenAIEffort(BudgetToEffort(*reasoning.BudgetTokens))
 	}
 
 	if reasoning.Specified {
@@ -157,6 +157,25 @@ func ReasoningToOpenAIEffort(
 	}
 
 	return ""
+}
+
+func clampReasoningToOpenAIEffort(
+	effort relaymodel.ReasoningEffort,
+) relaymodel.ReasoningEffort {
+	switch effort {
+	case relaymodel.ReasoningEffortNone:
+		return ""
+	case relaymodel.ReasoningEffortMinimal:
+		return relaymodel.ReasoningEffortLow
+	case relaymodel.ReasoningEffortLow,
+		relaymodel.ReasoningEffortMedium,
+		relaymodel.ReasoningEffortHigh:
+		return effort
+	case relaymodel.ReasoningEffortXHigh:
+		return relaymodel.ReasoningEffortHigh
+	default:
+		return ""
+	}
 }
 
 func BudgetToEffort(budget int) relaymodel.ReasoningEffort {

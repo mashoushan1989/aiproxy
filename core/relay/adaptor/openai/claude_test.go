@@ -356,9 +356,7 @@ func TestConvertClaudeToResponsesRequestMapsThinkingDisabled(t *testing.T) {
 	err = json.NewDecoder(result.Body).Decode(&responsesReq)
 	require.NoError(t, err)
 
-	require.NotNil(t, responsesReq.Reasoning)
-	require.NotNil(t, responsesReq.Reasoning.Effort)
-	assert.Equal(t, "none", *responsesReq.Reasoning.Effort)
+	assert.Nil(t, responsesReq.Reasoning)
 }
 
 func TestConvertResponsesToClaudeResponse(t *testing.T) {
