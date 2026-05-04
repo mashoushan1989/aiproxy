@@ -231,6 +231,7 @@ func TestGetChannelWithFallback_PrefersFirstSet(t *testing.T) {
 		mode.ChatCompletions,
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -265,6 +266,7 @@ func TestGetChannelWithFallback_FallsBackWhenFirstSetEmpty(t *testing.T) {
 		[]string{"overseas", "default"},
 		"gpt-4o",
 		mode.ChatCompletions,
+		nil,
 		nil,
 		nil,
 	)
@@ -306,6 +308,7 @@ func TestGetChannelWithFallback_FallsBackWhenFirstSetAllBanned(t *testing.T) {
 		"gpt-4o",
 		mode.ChatCompletions,
 		nil,
+		nil,
 		banned,
 	)
 	if err != nil {
@@ -337,6 +340,7 @@ func TestGetChannelWithFallback_SingleSetUnchanged(t *testing.T) {
 		mode.ChatCompletions,
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -359,6 +363,7 @@ func TestGetChannelWithFallback_NoChannelsInAnySets(t *testing.T) {
 		[]string{"overseas", "default"},
 		"gpt-4o",
 		mode.ChatCompletions,
+		nil,
 		nil,
 		nil,
 	)
@@ -397,6 +402,7 @@ func TestGetChannelWithFallback_HighErrorRateStaysInSameSet(t *testing.T) {
 		[]string{"overseas", "default"},
 		"gpt-4o",
 		mode.ChatCompletions,
+		nil,
 		errorRates,
 		nil,
 	)
@@ -451,6 +457,7 @@ func TestGetChannelWithFallback_MigratedChannelsScopedToSelectedSet(t *testing.T
 		mode.ChatCompletions,
 		nil,
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -485,7 +492,15 @@ func TestGetChannelWithFallback_EmptyAvailableSet(t *testing.T) {
 
 	// Empty slice → fast path → getRandomChannel with empty availableSet
 	// → iterates all sets in EnabledModel2ChannelsBySet.
-	ch, _, err := getChannelWithFallback(mc, []string{}, "gpt-4o", mode.ChatCompletions, nil, nil)
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{},
+		"gpt-4o",
+		mode.ChatCompletions,
+		nil,
+		nil,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -531,6 +546,7 @@ func TestGetChannelWithFallback_BannedPlusHighErrorRateFallsBack(t *testing.T) {
 		[]string{"overseas", "default"},
 		"gpt-4o",
 		mode.ChatCompletions,
+		nil,
 		errorRates,
 		banned,
 	)
@@ -585,6 +601,7 @@ func TestGetChannelWithFallback_AllBannedWithMixedErrorRatesFallsBack(t *testing
 		[]string{"overseas", "default"},
 		"gpt-4o",
 		mode.ChatCompletions,
+		nil,
 		errorRates,
 		banned,
 	)
@@ -594,5 +611,127 @@ func TestGetChannelWithFallback_AllBannedWithMixedErrorRatesFallsBack(t *testing
 
 	if ch.ID != 2 {
 		t.Fatalf("expected fallback to default channel (id=2), got id=%d", ch.ID)
+	}
+}
+
+func TestGetChannelWithFallback_PrefersRememberedChannelWithinSelectedSet(t *testing.T) {
+	overseasCh1 := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	overseasCh2 := &model.Channel{
+		ID:       3,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	defaultCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+
+	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
+		"overseas": {"gpt-4o": {overseasCh1, overseasCh2}},
+		"default":  {"gpt-4o": {defaultCh}},
+	})
+
+	ch, migrated, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		[]int{3, 2},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ch.ID != 3 {
+		t.Fatalf("expected preferred overseas channel (id=3), got id=%d", ch.ID)
+	}
+
+	for _, migratedCh := range migrated {
+		if migratedCh.ID == 2 {
+			t.Fatal("preferred default-set channel leaked into selected overseas set")
+		}
+	}
+}
+
+func TestGetChannelWithFallback_DoesNotCrossSetForPreferredChannel(t *testing.T) {
+	overseasCh := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	defaultCh := &model.Channel{
+		ID:       2,
+		Type:     model.ChannelTypePPIO,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+
+	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
+		"overseas": {"gpt-4o": {overseasCh}},
+		"default":  {"gpt-4o": {defaultCh}},
+	})
+
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas", "default"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		[]int{2},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ch.ID != 1 {
+		t.Fatalf("expected overseas channel despite default preference, got id=%d", ch.ID)
+	}
+}
+
+func TestGetChannelWithFallback_SkipsBannedPreferredChannel(t *testing.T) {
+	overseasCh1 := &model.Channel{
+		ID:       1,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+	overseasCh2 := &model.Channel{
+		ID:       3,
+		Type:     model.ChannelTypeNovita,
+		Status:   model.ChannelStatusEnabled,
+		Priority: 10,
+	}
+
+	mc := buildTestModelCaches(map[string]map[string][]*model.Channel{
+		"overseas": {"gpt-4o": {overseasCh1, overseasCh2}},
+	})
+
+	ch, _, err := getChannelWithFallback(
+		mc,
+		[]string{"overseas"},
+		"gpt-4o",
+		mode.ChatCompletions,
+		[]int{3},
+		nil,
+		map[int64]struct{}{3: {}},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if ch.ID != 1 {
+		t.Fatalf("expected non-banned overseas channel (id=1), got id=%d", ch.ID)
 	}
 }

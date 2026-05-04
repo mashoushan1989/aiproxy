@@ -19,6 +19,7 @@ const (
 type StoreV2 struct {
 	ID        string    `gorm:"size:128;primaryKey:3"`
 	CreatedAt time.Time `gorm:"autoCreateTime"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 	ExpiresAt time.Time
 	GroupID   string `gorm:"size:64;primaryKey:1"`
 	TokenID   int    `gorm:"primaryKey:2"`
@@ -47,6 +48,10 @@ func (s *StoreV2) BeforeSave(_ *gorm.DB) error {
 
 	if s.ExpiresAt.IsZero() {
 		s.ExpiresAt = s.CreatedAt.Add(time.Hour * 24 * 30)
+	}
+
+	if s.UpdatedAt.IsZero() {
+		s.UpdatedAt = s.CreatedAt
 	}
 
 	return nil
