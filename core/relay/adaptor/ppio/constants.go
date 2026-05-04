@@ -17,6 +17,11 @@ const (
 var ModelList = []model.ModelConfig{
 	// DeepSeek models
 	{
+		Model: "deepseek/deepseek-v4-pro",
+		Type:  mode.ChatCompletions,
+		Owner: model.ModelOwnerDeepSeek,
+	},
+	{
 		Model: "deepseek/deepseek-v3.2",
 		Type:  mode.ChatCompletions,
 		Owner: model.ModelOwnerDeepSeek,
