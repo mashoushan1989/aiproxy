@@ -1,16 +1,16 @@
 package minimax
 
-import "github.com/labring/aiproxy/core/relay/meta"
+import (
+	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/utils"
+)
 
 type Config struct {
 	UseChatCompletionsPath bool `json:"use_chat_completions_path"`
 }
 
-func loadConfig(meta *meta.Meta) (Config, error) {
-	cfg := Config{}
-	if meta == nil {
-		return cfg, nil
-	}
+var channelConfigCache utils.ChannelConfigCache[Config]
 
-	return cfg, meta.ChannelConfigs.LoadConfig(&cfg)
+func loadConfig(meta *meta.Meta) (Config, error) {
+	return channelConfigCache.Load(meta, Config{})
 }
