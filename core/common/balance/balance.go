@@ -19,6 +19,15 @@ type PostGroupConsumer interface {
 	PostGroupConsume(ctx context.Context, tokenName string, usage float64) (float64, error)
 }
 
+type IdempotentPostGroupConsumer interface {
+	PostGroupConsumeWithKey(
+		ctx context.Context,
+		tokenName string,
+		usage float64,
+		idempotencyKey string,
+	) (float64, error)
+}
+
 type GroupQuota struct {
 	Total  float64 `json:"total"`
 	Remain float64 `json:"remain"`

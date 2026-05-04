@@ -83,6 +83,10 @@ func main() {
 
 		go task.UsageAlertTask(ctx)
 
+		log.Info("async usage poll task started")
+
+		go task.AsyncUsagePollTask(ctx)
+
 		log.Info("update channels balance task started")
 
 		go controller.UpdateChannelsBalance(time.Minute * 10)
@@ -90,7 +94,7 @@ func main() {
 		log.WithFields(log.Fields{
 			"NODE_CHANNEL_SET":                config.GetNodeChannelSet(),
 			"GLOBAL_BACKGROUND_TASKS_ENABLED": false,
-		}).Info("global background tasks disabled, skipped: CleanLog, UsageAlert, UpdateChannelsBalance")
+		}).Info("global background tasks disabled, skipped: CleanLog, UsageAlert, AsyncUsagePoll, UpdateChannelsBalance")
 	}
 
 	log.Info("detect ip groups task started")

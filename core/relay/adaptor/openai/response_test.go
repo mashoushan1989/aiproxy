@@ -12,6 +12,7 @@ import (
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/adaptor"
 	"github.com/labring/aiproxy/core/relay/meta"
+	relaymodel "github.com/labring/aiproxy/core/relay/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,6 +160,44 @@ func TestResponseHandlerWebSearchCountFromToolUsage(t *testing.T) {
 	require.Nil(t, err)
 	assert.Equal(t, model.ZeroNullInt64(15321), result.Usage.TotalTokens)
 	assert.Equal(t, model.ZeroNullInt64(1), result.Usage.WebSearchCount)
+}
+
+func TestResponseNeedsAsyncUsage(t *testing.T) {
+	t.Run("queued without usage needs async usage", func(t *testing.T) {
+		response := &relaymodel.Response{
+			ID:     "resp_queued",
+			Status: relaymodel.ResponseStatusQueued,
+		}
+
+		assert.True(t, responseNeedsAsyncUsage(response))
+	})
+
+	t.Run("in progress without usage needs async usage", func(t *testing.T) {
+		response := &relaymodel.Response{
+			ID:     "resp_progress",
+			Status: relaymodel.ResponseStatusInProgress,
+		}
+
+		assert.True(t, responseNeedsAsyncUsage(response))
+	})
+
+	t.Run("existing usage does not need async usage", func(t *testing.T) {
+		response := &relaymodel.Response{
+			ID:     "resp_done",
+			Status: relaymodel.ResponseStatusCompleted,
+			Usage:  &relaymodel.ResponseUsage{TotalTokens: 10},
+		}
+
+		assert.False(t, responseNeedsAsyncUsage(response))
+	})
+
+	t.Run("missing upstream id does not need async usage", func(t *testing.T) {
+		response := &relaymodel.Response{
+			Status: relaymodel.ResponseStatusQueued,
+		}
+
+		assert.False(t, responseNeedsAsyncUsage(response))
+	})
 }
 
 func TestResponseStreamHandlerWebSearchCountFromToolUsage(t *testing.T) {

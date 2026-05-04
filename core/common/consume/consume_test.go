@@ -1,12 +1,33 @@
 package consume_test
 
 import (
+	"context"
 	"net/http"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/labring/aiproxy/core/common/consume"
 	"github.com/labring/aiproxy/core/model"
+	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
+
+type countingPostGroupConsumer struct {
+	calls  int
+	amount float64
+}
+
+func (c *countingPostGroupConsumer) PostGroupConsume(
+	_ context.Context,
+	_ string,
+	usage float64,
+) (float64, error) {
+	c.calls++
+	c.amount += usage
+
+	return usage, nil
+}
 
 func TestCalculateAmount(t *testing.T) {
 	tests := []struct {
@@ -286,6 +307,78 @@ func TestCalculateAmount(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("CalculateAmount()\n%s\n\tgot: %v\n\twant: %v\n\t", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestConsumeAsyncPendingDoesNotChargeOrRecordUsage(t *testing.T) {
+	db, err := model.OpenSQLite(filepath.Join(t.TempDir(), "logs.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	prevLogDB := model.LogDB
+	model.LogDB = db
+	t.Cleanup(func() {
+		model.LogDB = prevLogDB
+	})
+
+	if err := db.AutoMigrate(&model.Log{}, &model.RequestDetail{}); err != nil {
+		t.Fatalf("migrate log db: %v", err)
+	}
+
+	now := time.Unix(1777052048, 0)
+	consumer := &countingPostGroupConsumer{}
+	requestMeta := meta.NewMeta(
+		&model.Channel{ID: 11},
+		mode.ChatCompletions,
+		"async-per-request-model",
+		model.ModelConfig{},
+		meta.WithRequestID("req_async_wait"),
+		meta.WithRequestAt(now),
+		meta.WithGroup(model.GroupCache{ID: "test-group"}),
+		meta.WithToken(model.TokenCache{ID: 12, Name: "test-token"}),
+	)
+
+	consume.Consume(
+		context.Background(),
+		now,
+		consumer,
+		now,
+		http.StatusOK,
+		requestMeta,
+		model.Usage{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
+		model.Price{PerRequestPrice: 2.5},
+		"",
+		"127.0.0.1",
+		0,
+		nil,
+		true,
+		"",
+		nil,
+		"resp_async_wait",
+		"",
+		model.AsyncUsageStatusPending,
+	)
+
+	if consumer.calls != 0 {
+		t.Fatalf("expected async pending consume to skip balance charge, got %d calls", consumer.calls)
+	}
+
+	var got model.Log
+	if err := db.Where("request_id = ?", "req_async_wait").First(&got).Error; err != nil {
+		t.Fatalf("query log: %v", err)
+	}
+
+	if got.Amount.UsedAmount != 0 {
+		t.Fatalf("expected pending log amount to be zero, got %f", got.Amount.UsedAmount)
+	}
+
+	if got.Usage.TotalTokens != 0 {
+		t.Fatalf("expected pending log usage to be zero, got %d", got.Usage.TotalTokens)
+	}
+
+	if got.Price.PerRequestPrice != 2.5 {
+		t.Fatalf("expected pending log to keep original price, got %f", got.Price.PerRequestPrice)
 	}
 }
 

@@ -413,13 +413,31 @@ func (s *SealosPostGroupConsumer) PostGroupConsume(
 	tokenName string,
 	usage float64,
 ) (float64, error) {
+	return s.postGroupConsume(ctx, tokenName, usage, "")
+}
+
+func (s *SealosPostGroupConsumer) PostGroupConsumeWithKey(
+	ctx context.Context,
+	tokenName string,
+	usage float64,
+	idempotencyKey string,
+) (float64, error) {
+	return s.postGroupConsume(ctx, tokenName, usage, idempotencyKey)
+}
+
+func (s *SealosPostGroupConsumer) postGroupConsume(
+	ctx context.Context,
+	tokenName string,
+	usage float64,
+	idempotencyKey string,
+) (float64, error) {
 	amount := s.calculateAmount(usage)
 
 	if err := cacheDecreaseGroupBalance(ctx, s.group, amount.IntPart()); err != nil {
 		log.Errorf("decrease group (%s) balance cache failed: %s", s.group, err)
 	}
 
-	if err := s.postConsume(ctx, amount.IntPart(), tokenName); err != nil {
+	if err := s.postConsume(ctx, amount.IntPart(), tokenName, idempotencyKey); err != nil {
 		return 0, err
 	}
 
@@ -439,6 +457,7 @@ func (s *SealosPostGroupConsumer) postConsume(
 	ctx context.Context,
 	amount int64,
 	tokenName string,
+	idempotencyKey string,
 ) error {
 	reqBody, err := sonic.Marshal(sealosPostGroupConsumeReq{
 		Namespace: s.group,
@@ -460,6 +479,9 @@ func (s *SealosPostGroupConsumer) postConsume(
 	}
 
 	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 
 	resp, err := sealosHTTPClient.Do(req)
 	if err != nil {
