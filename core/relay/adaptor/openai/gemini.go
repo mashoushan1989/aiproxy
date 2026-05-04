@@ -523,6 +523,11 @@ func convertGeminiGenerationConfigToOpenAI(
 				}
 			}
 		}
+
+		utils.ApplyReasoningToOpenAIRequest(
+			openaiReq,
+			utils.ParseGeminiReasoning(geminiReq.GenerationConfig.ThinkingConfig),
+		)
 	}
 }
 
@@ -755,6 +760,11 @@ func ConvertGeminiToResponsesRequest(
 		if geminiReq.GenerationConfig.MaxOutputTokens != nil {
 			responsesReq.MaxOutputTokens = geminiReq.GenerationConfig.MaxOutputTokens
 		}
+
+		utils.ApplyReasoningToResponsesRequest(
+			&responsesReq,
+			utils.ParseGeminiReasoning(geminiReq.GenerationConfig.ThinkingConfig),
+		)
 	}
 
 	// Convert tools

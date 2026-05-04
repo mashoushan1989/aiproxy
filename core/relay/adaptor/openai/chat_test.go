@@ -317,6 +317,22 @@ func TestConvertChatCompletionToResponsesRequest(t *testing.T) {
 				assert.Equal(t, "priority", *responsesReq.ServiceTier)
 			},
 		},
+		{
+			name: "request with reasoning effort",
+			inputRequest: relaymodel.GeneralOpenAIRequest{
+				Model: "gpt-5-codex",
+				Messages: []relaymodel.Message{
+					{Role: "user", Content: "Think carefully."},
+				},
+				ReasoningEffort: stringPtr("high"),
+			},
+			checkFunc: func(t *testing.T, responsesReq relaymodel.CreateResponseRequest) {
+				t.Helper()
+				require.NotNil(t, responsesReq.Reasoning)
+				require.NotNil(t, responsesReq.Reasoning.Effort)
+				assert.Equal(t, "high", *responsesReq.Reasoning.Effort)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -346,6 +362,10 @@ func TestConvertChatCompletionToResponsesRequest(t *testing.T) {
 			tt.checkFunc(t, responsesReq)
 		})
 	}
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func TestConvertResponsesToChatCompletionResponse(t *testing.T) {
