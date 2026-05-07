@@ -281,6 +281,36 @@ const BILLING_ROWS: BillingRowDef[] = [
     { labelKey: "enterprise.myAccess.billingWebSearch", amountKey: "web_search_amount", usageKey: "web_search_count", unitKey: "enterprise.myAccess.billingRequests" },
 ]
 
+function positiveQuantity(value: number) {
+    return Math.max(value, 0)
+}
+
+function getBillingQuantity(log: UserLog, row: BillingRowDef) {
+    const usage = log.usage
+    if (!usage) {
+        return 0
+    }
+
+    switch (row.amountKey) {
+        case "input_amount":
+            return positiveQuantity(
+                (usage.input_tokens ?? 0) -
+                (usage.cached_tokens ?? 0) -
+                (usage.cache_creation_tokens ?? 0) -
+                (usage.image_input_tokens ?? 0) -
+                (usage.audio_input_tokens ?? 0),
+            )
+        case "output_amount":
+            return positiveQuantity(
+                (usage.output_tokens ?? 0) -
+                (usage.reasoning_tokens ?? 0) -
+                (usage.image_output_tokens ?? 0),
+            )
+        default:
+            return row.usageKey ? usage[row.usageKey] ?? 0 : 0
+    }
+}
+
 function BillingDetailPopover({ log }: { log: UserLog }) {
     const { t } = useTranslation()
     const amount = log.amount
@@ -290,7 +320,7 @@ function BillingDetailPopover({ log }: { log: UserLog }) {
     const rows = BILLING_ROWS
         .map(row => {
             const cost = amount?.[row.amountKey] ?? 0
-            const quantity = row.usageKey ? usage?.[row.usageKey] ?? 0 : 0
+            const quantity = getBillingQuantity(log, row)
             return { ...row, cost, quantity }
         })
         .filter(row => row.cost > 0 || row.quantity > 0)
