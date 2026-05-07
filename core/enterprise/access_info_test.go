@@ -113,11 +113,14 @@ func createLog(t *testing.T, l model.Log, detail *model.RequestDetail) model.Log
 }
 
 type testUserLog struct {
-	ID        int    `json:"id"`
-	Model     string `json:"model"`
-	RequestID string `json:"request_id"`
-	Code      int    `json:"code"`
-	HasDetail bool   `json:"has_detail"`
+	ID         int          `json:"id"`
+	Model      string       `json:"model"`
+	RequestID  string       `json:"request_id"`
+	Code       int          `json:"code"`
+	Usage      model.Usage  `json:"usage"`
+	Amount     model.Amount `json:"amount"`
+	UsedAmount float64      `json:"used_amount"`
+	HasDetail  bool         `json:"has_detail"`
 }
 
 type testGetTokenLogsResult struct {
@@ -273,6 +276,22 @@ func TestGetMyLogs_HonorsThirtyDayRangeAndGroupIsolation(t *testing.T) {
 		Code:      200,
 		CreatedAt: now.Add(-20 * 24 * time.Hour),
 		RequestAt: now.Add(-20 * 24 * time.Hour),
+		Usage: model.Usage{
+			InputTokens:         120,
+			CachedTokens:        40,
+			CacheCreationTokens: 10,
+			OutputTokens:        30,
+			ReasoningTokens:     5,
+			TotalTokens:         150,
+		},
+		Amount: model.Amount{
+			InputAmount:         0.12,
+			CachedAmount:        0.01,
+			CacheCreationAmount: 0.03,
+			OutputAmount:        0.24,
+			ReasoningAmount:     0.02,
+			UsedAmount:          0.42,
+		},
 	}, &model.RequestDetail{RequestBody: `{"ok":true}`, ResponseBody: `{"id":"resp_1"}`})
 
 	createLog(t, model.Log{
@@ -323,6 +342,26 @@ func TestGetMyLogs_HonorsThirtyDayRangeAndGroupIsolation(t *testing.T) {
 
 	if !result.Logs[0].HasDetail {
 		t.Fatalf("expected has_detail=true for seeded request detail")
+	}
+
+	if result.Logs[0].UsedAmount != 0.42 {
+		t.Fatalf("expected used_amount=0.42, got %v", result.Logs[0].UsedAmount)
+	}
+
+	if result.Logs[0].Usage.InputTokens != 120 ||
+		result.Logs[0].Usage.CachedTokens != 40 ||
+		result.Logs[0].Usage.CacheCreationTokens != 10 ||
+		result.Logs[0].Usage.OutputTokens != 30 ||
+		result.Logs[0].Usage.ReasoningTokens != 5 {
+		t.Fatalf("unexpected usage detail: %+v", result.Logs[0].Usage)
+	}
+
+	if result.Logs[0].Amount.InputAmount != 0.12 ||
+		result.Logs[0].Amount.CachedAmount != 0.01 ||
+		result.Logs[0].Amount.CacheCreationAmount != 0.03 ||
+		result.Logs[0].Amount.OutputAmount != 0.24 ||
+		result.Logs[0].Amount.ReasoningAmount != 0.02 {
+		t.Fatalf("unexpected amount detail: %+v", result.Logs[0].Amount)
 	}
 }
 

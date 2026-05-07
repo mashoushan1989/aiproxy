@@ -1505,6 +1505,7 @@ type UserLog struct {
 	Code             int             `json:"code,omitempty"`
 	Mode             int             `json:"mode,omitempty"`
 	Usage            Usage           `json:"usage,omitempty"`
+	Amount           Amount          `json:"amount,omitempty"`
 	UsedAmount       float64         `json:"used_amount,omitempty"`
 	ServiceTier      string          `json:"service_tier,omitempty"`
 	User             EmptyNullString `json:"user,omitempty"`
@@ -1542,6 +1543,7 @@ func logToUserLog(l *Log) UserLog {
 		Code:             l.Code,
 		Mode:             l.Mode,
 		Usage:            l.Usage,
+		Amount:           l.Amount,
 		UsedAmount:       l.Amount.UsedAmount,
 		ServiceTier:      l.ServiceTier,
 		User:             l.User,

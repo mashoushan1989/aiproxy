@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
     DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent,
     DropdownMenuTrigger,
@@ -256,6 +257,104 @@ interface TopModelColumnDef {
     optional?: boolean
     format?: (v: number) => string
     renderCell?: (row: ModelUsage) => React.ReactNode
+}
+
+type BillingAmountKey = keyof NonNullable<UserLog["amount"]>
+type BillingUsageKey = keyof UserLog["usage"]
+
+interface BillingRowDef {
+    labelKey: string
+    amountKey: BillingAmountKey
+    usageKey?: BillingUsageKey
+    unitKey?: string
+}
+
+const BILLING_ROWS: BillingRowDef[] = [
+    { labelKey: "enterprise.myAccess.billingInput", amountKey: "input_amount", usageKey: "input_tokens" },
+    { labelKey: "enterprise.myAccess.billingCached", amountKey: "cached_amount", usageKey: "cached_tokens" },
+    { labelKey: "enterprise.myAccess.billingCacheCreation", amountKey: "cache_creation_amount", usageKey: "cache_creation_tokens" },
+    { labelKey: "enterprise.myAccess.billingOutput", amountKey: "output_amount", usageKey: "output_tokens" },
+    { labelKey: "enterprise.myAccess.billingReasoning", amountKey: "reasoning_amount", usageKey: "reasoning_tokens" },
+    { labelKey: "enterprise.myAccess.billingImageInput", amountKey: "image_input_amount", usageKey: "image_input_tokens" },
+    { labelKey: "enterprise.myAccess.billingImageOutput", amountKey: "image_output_amount", usageKey: "image_output_tokens" },
+    { labelKey: "enterprise.myAccess.billingAudioInput", amountKey: "audio_input_amount", usageKey: "audio_input_tokens" },
+    { labelKey: "enterprise.myAccess.billingWebSearch", amountKey: "web_search_amount", usageKey: "web_search_count", unitKey: "enterprise.myAccess.billingRequests" },
+]
+
+function BillingDetailPopover({ log }: { log: UserLog }) {
+    const { t } = useTranslation()
+    const amount = log.amount
+    const usage = log.usage
+    const totalAmount = log.used_amount ?? amount?.used_amount ?? 0
+    const totalTokens = usage?.total_tokens ?? 0
+    const rows = BILLING_ROWS
+        .map(row => {
+            const cost = amount?.[row.amountKey] ?? 0
+            const quantity = row.usageKey ? usage?.[row.usageKey] ?? 0 : 0
+            return { ...row, cost, quantity }
+        })
+        .filter(row => row.cost > 0 || row.quantity > 0)
+    const maxCost = Math.max(...rows.map(row => row.cost), totalAmount, 0)
+
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs font-semibold tabular-nums hover:bg-emerald-500/10 hover:text-emerald-700 dark:hover:text-emerald-300"
+                    title={t("enterprise.myAccess.billingClickHint" as never)}
+                >
+                    {formatAmount(totalAmount)}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-3" align="end">
+                <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <p className="text-sm font-semibold">{t("enterprise.myAccess.billingTitle" as never)}</p>
+                            <p className="text-[11px] text-muted-foreground font-mono truncate max-w-[190px]">
+                                {log.request_id || log.model}
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-base font-bold tabular-nums">{formatAmount(totalAmount)}</p>
+                            <p className="text-[11px] text-muted-foreground tabular-nums">
+                                {formatNumber(totalTokens)} {t("enterprise.myAccess.billingTokens" as never)}
+                            </p>
+                        </div>
+                    </div>
+                    {rows.length > 0 ? (
+                        <div className="space-y-2">
+                            {rows.map(row => (
+                                <div key={row.amountKey} className="space-y-1">
+                                    <div className="flex items-center justify-between gap-3 text-xs">
+                                        <span className="text-muted-foreground">{t(row.labelKey as never)}</span>
+                                        <span className="font-medium tabular-nums">{formatAmount(row.cost)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                                            <div
+                                                className="h-full rounded-full bg-emerald-500"
+                                                style={{ width: `${maxCost > 0 ? Math.max((row.cost / maxCost) * 100, row.cost > 0 ? 4 : 0) : 0}%` }}
+                                            />
+                                        </div>
+                                        <span className="w-20 text-right text-[11px] text-muted-foreground tabular-nums">
+                                            {formatNumber(row.quantity)} {row.unitKey ? t(row.unitKey as never) : t("enterprise.myAccess.billingTokens" as never)}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                            {t("enterprise.myAccess.billingNoBreakdown" as never)}
+                        </p>
+                    )}
+                </div>
+            </PopoverContent>
+        </Popover>
+    )
 }
 
 const TOP_MODEL_COLUMNS: TopModelColumnDef[] = [
@@ -1174,7 +1273,7 @@ function RequestLogsSection() {
                                                     {formatNumber(log.usage?.total_tokens || 0)}
                                                 </td>
                                                 <td className="px-3 py-2 text-right tabular-nums">
-                                                    {formatAmount(log.used_amount ?? 0)}
+                                                    <BillingDetailPopover log={log} />
                                                 </td>
                                                 <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                                                     {log.ttfb_milliseconds > 0 ? formatMs(log.ttfb_milliseconds) : "-"}

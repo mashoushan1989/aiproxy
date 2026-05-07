@@ -534,8 +534,27 @@ export interface UserLog {
     code: number
     usage: {
         input_tokens: number
+        image_input_tokens?: number
+        audio_input_tokens?: number
         output_tokens: number
+        image_output_tokens?: number
+        cached_tokens?: number
+        cache_creation_tokens?: number
+        reasoning_tokens?: number
         total_tokens: number
+        web_search_count?: number
+    }
+    amount?: {
+        input_amount?: number
+        image_input_amount?: number
+        audio_input_amount?: number
+        output_amount?: number
+        image_output_amount?: number
+        reasoning_amount?: number
+        cached_amount?: number
+        cache_creation_amount?: number
+        web_search_amount?: number
+        used_amount?: number
     }
     used_amount?: number
     ttfb_milliseconds: number

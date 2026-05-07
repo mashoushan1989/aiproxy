@@ -13,7 +13,8 @@ This assessment is based on:
 
 ## Executive Summary
 
-- The repair changes AI Proxy's internal billing facts and rollups. It does not change PPIO's upstream real charge.
+- Current decision: do not mutate historical production billing data for this incident. Treat this document as impact analysis, not execution approval.
+- A hypothetical historical repair would change AI Proxy's internal billing facts and rollups. It would not change PPIO's upstream real charge.
 - `logs`, `group_summaries`, token/group quota accumulators, and channel accumulators are not the same layer and are not all automatically kept in sync by a historical backfill.
 - `logs.token_id -> tokens.id`, `logs.group_id -> groups.id`, and `logs.channel_id -> channels.id` are stable mappings.
 - Workbook truth is only `day + model` granularity. It is not one-to-one with individual requests, tokens, or groups.
@@ -24,7 +25,7 @@ This assessment is based on:
 
 ### 1. Upstream billing vs internal AI Proxy billing
 
-The repair is a reconciliation against the upstream PPIO workbook. It does not change what PPIO billed. It changes AI Proxy's internal interpretation of that usage.
+The underlying issue is a reconciliation gap against the upstream PPIO workbook. It does not change what PPIO billed. If a historical repair were ever executed, it would change AI Proxy's internal interpretation of that usage. That execution is currently cancelled.
 
 Practical impact:
 
@@ -48,7 +49,7 @@ Token validation and total quota checks use token cache / token used amount:
 
 - `core/model/token.go:434`
 
-So a logs-only repair is insufficient for user-facing correctness.
+So any hypothetical logs-only repair would be insufficient for user-facing correctness.
 
 ## One-to-One Mapping: What Is Stable And What Is Not
 
@@ -265,7 +266,7 @@ Code paths show these are derived independently during rollup:
 - `core/model/batch.go:1036`
 - `core/model/batch.go:1053`
 
-Best practice for the repair is:
+If the team ever reopens a repair decision, best practice would be:
 
 - correct billing fields and token counters from truth-constrained logic
 - preserve or rebuild operational counters only from trusted local request facts
@@ -273,7 +274,7 @@ Best practice for the repair is:
 
 ## Repair Implications
 
-To make the repair user-correct, not just reconciliation-correct, the formal run should cover four layers:
+If a historical repair were ever executed, it would need to cover four layers to avoid inconsistent state:
 
 1. `logs`
    - repair `used_amount` and billing-related token fields inside the scoped PPIO history
@@ -293,7 +294,7 @@ If any of the four is skipped, a bad intermediate state is likely:
 
 ## Recommended Validation Matrix
 
-After `apply`, the minimum validation set should be:
+If `apply` were ever reintroduced, the minimum validation set would be:
 
 1. `logs` vs workbook
    - exact match on scoped `day + model`
@@ -308,17 +309,12 @@ After `apply`, the minimum validation set should be:
 
 ## Bottom Line
 
-The repair is justified and will mostly be perceived as an April usage decrease for a limited set of heavy PPIO users in the first week of the month.
+The underlying discrepancy is real and would mostly be perceived as an April usage decrease for a limited set of heavy PPIO users in the first week of the month.
 
-The main implementation risk is not the truth source anymore. The main implementation risk is partial repair:
+The main implementation risk is not the truth source anymore. The main implementation risk would be a partial repair:
 
 - fixing `logs` without `group_summaries`
 - fixing DB without Redis cache sync
 - fixing user-facing totals without channel recompute
 
-As of now, the safest formal approach remains:
-
-- truth-constrained historical repair on `logs`
-- deterministic rebuild of user-facing summary tables
-- explicit synchronization of token/group accumulators and Redis caches
-- explicit recomputation of channel accumulators
+As of now, that approach is not being executed. This document should be read as impact analysis and implementation risk analysis only.

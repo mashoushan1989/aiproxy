@@ -8,6 +8,11 @@ This note classifies the Phase A hybrid dry-run results into three buckets:
 - workbook truth buckets with no current user ownership
 - buckets that are attributable but still evidence-limited and should be treated as pending review
 
+Current decision:
+
+- this file remains a review artifact only
+- it should not be used as an execution list for rewriting historical production billing data
+
 Reference artifacts:
 
 - [billing_fix_202604_ppio_phase_a_hybrid_dry_run_summary.md](/Users/ash/Documents/GitHub/aiproxy/tmp/ppio_billing_repair_runs/billing_fix_202604_ppio_phase_a_hybrid_dry_run_summary.md)
@@ -36,7 +41,7 @@ Reference artifacts:
 
 ## A. Clear Attributable User Adjustments
 
-These groups have clear local ownership and will be adjusted if Phase A is applied.
+These groups have clear local ownership and would have been the main user-facing adjustment candidates under the Phase A simulation.
 
 | group_name | current_used_amount | proposed_used_amount | delta_used_amount | replayable_rows | total_rows |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -164,4 +169,4 @@ For the current Phase A hybrid dry-run:
 - the large user adjustments are attributable and actionable
 - the unowned portion is small in money terms: `¥72.3096`
 - the main open question is not “which users are affected”
-- the main open question is “how to represent evidence quality” for large residual-driven buckets during apply and stakeholder communication
+- the main open question is how to represent evidence quality for large residual-driven buckets in stakeholder communication

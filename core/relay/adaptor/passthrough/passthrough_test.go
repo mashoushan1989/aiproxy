@@ -119,6 +119,31 @@ func TestExtractUsage_ResponsesAPI_Nested(t *testing.T) {
 	}
 }
 
+// Responses API with cached tokens and reasoning tokens (real PPIO pa/gpt-5.5 payload).
+func TestExtractUsage_ResponsesAPI_CachedAndReasoning(t *testing.T) {
+	payload := `data: {"type":"response.completed","response":{"id":"resp_ws","usage":{"input_tokens":15065,"input_tokens_details":{"cached_tokens":10880},"output_tokens":256,"output_tokens_details":{"reasoning_tokens":81},"total_tokens":15321}}}` + "\n\ndata: [DONE]\n"
+
+	u := extractUsageFromTail([]byte(payload))
+
+	tests := []struct {
+		name string
+		got  int64
+		want int64
+	}{
+		{"InputTokens", int64(u.InputTokens), 15065},
+		{"OutputTokens", int64(u.OutputTokens), 256},
+		{"CachedTokens", int64(u.CachedTokens), 10880},
+		{"ReasoningTokens", int64(u.ReasoningTokens), 81},
+		{"TotalTokens", int64(u.TotalTokens), 15321},
+	}
+
+	for _, tt := range tests {
+		if tt.got != tt.want {
+			t.Errorf("%s: want %d, got %d", tt.name, tt.want, tt.got)
+		}
+	}
+}
+
 // Standard OpenAI streaming usage (last SSE chunk before [DONE]).
 func TestExtractUsage_OpenAI_Stream(t *testing.T) {
 	payload := `data: {"id":"chatcmpl-1","choices":[],"usage":{"prompt_tokens":14,"completion_tokens":12,"total_tokens":26}}` + "\ndata: [DONE]\n"
@@ -252,6 +277,28 @@ func TestExtractUsage_Missing(t *testing.T) {
 	u := extractUsageFromTail([]byte(`data: {"choices":[]}`))
 	if int64(u.InputTokens) != 0 || int64(u.OutputTokens) != 0 {
 		t.Errorf("expected zero usage, got %+v", u)
+	}
+}
+
+// Defensive: upstream returns cached > input (data anomaly). Should clamp to prevent negative billing.
+func TestExtractUsage_CachedExceedsInput(t *testing.T) {
+	// Anomalous upstream: cached_tokens (200) > prompt_tokens (100)
+	payload := `{"usage":{"prompt_tokens":100,"completion_tokens":50,"prompt_tokens_details":{"cached_tokens":200}}}`
+
+	u := extractUsageFromTail([]byte(payload))
+	if int64(u.InputTokens) != 100 {
+		t.Errorf("InputTokens: want 100, got %d", u.InputTokens)
+	}
+
+	// CachedTokens should be clamped to InputTokens to prevent negative billing
+	if u.CachedTokens > u.InputTokens {
+		t.Errorf("CachedTokens (%d) exceeds InputTokens (%d), should be clamped", u.CachedTokens, u.InputTokens)
+	}
+
+	// Verify billing would not go negative
+	regularInput := u.InputTokens - u.CachedTokens - u.CacheCreationTokens
+	if regularInput < 0 {
+		t.Errorf("Regular input tokens would be negative: %d", regularInput)
 	}
 }
 

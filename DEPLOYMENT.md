@@ -1749,6 +1749,7 @@ sudo systemctl status aiproxy --no-pager
 | 30 | P1 | Docker 网络 | `iptables` NAT MASQUERADE 规则丢失（防火墙变更、WireGuard 重配等触发） | Docker 容器内 DNS 解析失败，构建和运行均报 `temporary error` / `bad address`。宿主机网络正常但容器不通。**修复**：`sudo iptables -t nat -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE`，或重启 Docker daemon。`deploy.sh` 预检已自动检测并修复 |
 | 31 | P2 | 部署脚本 | `sudo bash scripts/deploy.sh` 执行 `git pull` 时 SSH key 无权限 | `sudo` 丢失 SSH agent forwarding，`git pull` 报 `Permission denied (publickey)`。**修复**：脚本已自动回退到显式 SSH key，或手动 `--no-pull` 后单独拉取 |
 | 4 | P1 | 备份 | 启用 `LOG_SQL_DSN` 后只备份主库 | 恢复时丢失请求日志和审计数据 |
+| 32 | P0 | 零停机部署 | 手动 `docker stop` + `docker run` 重启或修改容器配置（如改 `.env`） | **直接服务中断**，违背零停机原则。即使只改环境变量，也必须通过 `deploy.sh --no-pull` 走 canary → Nginx 切换 → drain 全流程。绝对不要手动操作容器生命周期 |
 
 ---
 

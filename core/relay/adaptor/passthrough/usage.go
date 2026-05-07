@@ -100,20 +100,24 @@ func extractUsageFromBytes(data []byte, firstOccurrence bool) model.Usage {
 // rawUsage covers the union of all usage field names returned by PPIO/Novita
 // across the OpenAI, Anthropic, and Responses API protocols.
 type rawUsage struct {
-	// OpenAI format
+	// OpenAI ChatCompletions format
 	PromptTokens     model.ZeroNullInt64 `json:"prompt_tokens,omitempty"`
 	CompletionTokens model.ZeroNullInt64 `json:"completion_tokens,omitempty"`
 	TotalTokens      model.ZeroNullInt64 `json:"total_tokens,omitempty"`
 
-	// OpenAI: reasoning model breakdown
+	// OpenAI ChatCompletions: reasoning model breakdown
 	CompletionTokensDetails *completionTokensDetails `json:"completion_tokens_details,omitempty"`
 
-	// OpenAI: prompt cache breakdown
+	// OpenAI ChatCompletions: prompt cache breakdown
 	PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 
-	// Anthropic / Responses API format
+	// Anthropic / Responses API shared format
 	InputTokens  model.ZeroNullInt64 `json:"input_tokens,omitempty"`
 	OutputTokens model.ZeroNullInt64 `json:"output_tokens,omitempty"`
+
+	// Responses API: cache and reasoning breakdown (nested under input_tokens_details/output_tokens_details)
+	InputTokensDetails  *inputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *outputTokensDetails `json:"output_tokens_details,omitempty"`
 
 	// Anthropic: prompt cache (flat top-level fields)
 	CacheReadInputTokens     model.ZeroNullInt64 `json:"cache_read_input_tokens,omitempty"`
@@ -134,6 +138,16 @@ type completionTokensDetails struct {
 type promptTokensDetails struct {
 	CachedTokens             model.ZeroNullInt64 `json:"cached_tokens,omitempty"`
 	CacheCreationInputTokens model.ZeroNullInt64 `json:"cache_creation_input_tokens,omitempty"`
+}
+
+// inputTokensDetails handles Responses API input_tokens_details.
+type inputTokensDetails struct {
+	CachedTokens model.ZeroNullInt64 `json:"cached_tokens,omitempty"`
+}
+
+// outputTokensDetails handles Responses API output_tokens_details.
+type outputTokensDetails struct {
+	ReasoningTokens model.ZeroNullInt64 `json:"reasoning_tokens,omitempty"`
 }
 
 // cacheCreation handles Anthropic's nested cache_creation object.
@@ -186,12 +200,14 @@ func (r *rawUsage) toModelUsage() model.Usage {
 	// where total excludes cached input tokens). Never trust it.
 	u.TotalTokens = u.InputTokens + u.OutputTokens
 
-	// Reasoning tokens (OpenAI format: completion_tokens_details.reasoning_tokens).
+	// Reasoning tokens: prefer ChatCompletions format, fallback to Responses API format.
 	if r.CompletionTokensDetails != nil {
 		u.ReasoningTokens = r.CompletionTokensDetails.ReasoningTokens
+	} else if r.OutputTokensDetails != nil {
+		u.ReasoningTokens = r.OutputTokensDetails.ReasoningTokens
 	}
 
-	// Cached tokens (OpenAI format: prompt_tokens_details.cached_tokens).
+	// Cached tokens: prefer ChatCompletions format, then Responses API, then Anthropic flat format.
 	if r.PromptTokensDetails != nil {
 		u.CachedTokens = r.PromptTokensDetails.CachedTokens
 
@@ -199,10 +215,11 @@ func (r *rawUsage) toModelUsage() model.Usage {
 		if r.PromptTokensDetails.CacheCreationInputTokens > 0 {
 			u.CacheCreationTokens = r.PromptTokensDetails.CacheCreationInputTokens
 		}
-	}
-
-	// Cached tokens (Anthropic flat format: cache_read_input_tokens).
-	if r.CacheReadInputTokens > 0 {
+	} else if r.InputTokensDetails != nil {
+		// Responses API: input_tokens_details.cached_tokens
+		u.CachedTokens = r.InputTokensDetails.CachedTokens
+	} else if r.CacheReadInputTokens > 0 {
+		// Anthropic flat format: cache_read_input_tokens
 		u.CachedTokens = r.CacheReadInputTokens
 	}
 
@@ -215,6 +232,19 @@ func (r *rawUsage) toModelUsage() model.Usage {
 
 	// Tavily credits → WebSearchCount for per-request billing.
 	u.WebSearchCount = r.Credits
+
+	// Defensive: enforce the invariant that CachedTokens + CacheCreationTokens ≤ InputTokens.
+	// Upstream data anomalies (e.g. PPIO returning inconsistent cache fields) can violate
+	// this, causing negative billing in consume.go. Clamp to zero to prevent negative amounts.
+	cacheTotal := u.CachedTokens + u.CacheCreationTokens
+	if cacheTotal > u.InputTokens && u.InputTokens > 0 {
+		// Proportionally scale down both cache fields to fit within InputTokens.
+		if cacheTotal > 0 {
+			scale := float64(u.InputTokens) / float64(cacheTotal)
+			u.CachedTokens = model.ZeroNullInt64(float64(u.CachedTokens) * scale)
+			u.CacheCreationTokens = model.ZeroNullInt64(float64(u.CacheCreationTokens) * scale)
+		}
+	}
 
 	return u
 }
