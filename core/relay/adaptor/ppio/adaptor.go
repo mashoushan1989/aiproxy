@@ -103,7 +103,9 @@ func (a *Adaptor) GetRequestURL(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		pbm := passthrough.GetPathBaseMap(m.ChannelConfigs)
 		rb := pbm[PathPrefixResponses]
 		if rb == "" {

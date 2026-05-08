@@ -58,6 +58,8 @@ func (t *Timeout) ConvertRequest(
 	case mode.ChatCompletions,
 		mode.Completions,
 		mode.Responses,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens,
 		mode.Anthropic:
 		// Compute stream first so ModelConfig.StreamRequestTimeout override
 		// below applies correctly to passthrough channels too.

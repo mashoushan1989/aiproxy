@@ -147,3 +147,43 @@ func TestAdaptorConvertRequestResponses(t *testing.T) {
 		t.Fatal("expected stream to remain enabled")
 	}
 }
+
+func TestAdaptorConvertRequestResponsesCompactMapsModel(t *testing.T) {
+	adaptor := &Adaptor{}
+	m := meta.NewMeta(
+		nil,
+		mode.ResponsesCompact,
+		"public-model",
+		coremodel.ModelConfig{},
+	)
+	m.ActualModel = "qwen-plus"
+
+	req, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/v1/responses/compact",
+		strings.NewReader(`{"model":"public-model","input":"hello"}`),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	result, err := adaptor.ConvertRequest(m, nil, req)
+	if err != nil {
+		t.Fatalf("ConvertRequest returned error: %v", err)
+	}
+
+	body, err := io.ReadAll(result.Body)
+	if err != nil {
+		t.Fatalf("failed to read converted body: %v", err)
+	}
+
+	var responseReq relaymodel.CreateResponseRequest
+	if err := json.Unmarshal(body, &responseReq); err != nil {
+		t.Fatalf("failed to unmarshal converted body: %v", err)
+	}
+
+	if responseReq.Model != "qwen-plus" {
+		t.Fatalf("expected model qwen-plus, got %s", responseReq.Model)
+	}
+}

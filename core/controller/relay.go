@@ -452,6 +452,42 @@ func GetResponseInputItems() []gin.HandlerFunc {
 	}
 }
 
+// CompactResponse godoc
+//
+//	@Summary		Compact response
+//	@Description	Compact a response conversation
+//	@Tags			relay
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			request			body	object	true	"Request"
+//	@Param			Aiproxy-Channel	header	string	false	"Optional Aiproxy-Channel header"
+//	@Success		200				{object}	model.Response
+//	@Router			/v1/responses/compact [post]
+func CompactResponse() []gin.HandlerFunc {
+	return []gin.HandlerFunc{
+		middleware.NewDistribute(mode.ResponsesCompact),
+		NewRelay(mode.ResponsesCompact),
+	}
+}
+
+// GetResponseInputTokens godoc
+//
+//	@Summary		Get response input token count
+//	@Description	Get input token counts for a response request
+//	@Tags			relay
+//	@Produce		json
+//	@Security		ApiKeyAuth
+//	@Param			request			body	object	true	"Request"
+//	@Param			Aiproxy-Channel	header	string	false	"Optional Aiproxy-Channel header"
+//	@Success		200				{object}	object
+//	@Router			/v1/responses/input_tokens [post]
+func GetResponseInputTokens() []gin.HandlerFunc {
+	return []gin.HandlerFunc{
+		middleware.NewDistribute(mode.ResponsesInputTokens),
+		NewRelay(mode.ResponsesInputTokens),
+	}
+}
+
 // Gemini godoc
 //
 //	@Summary		Gemini Native API

@@ -93,7 +93,9 @@ func (a *Adaptor) GetRequestURL(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		if len(pbm) > 0 {
 			return a.Adaptor.GetRequestURL(m, store, c)
 		}

@@ -290,7 +290,7 @@ func buildResponseBody(
 	case mode.Gemini:
 		_, err := writeGemini(meta, gc, cfg, reqCtx, usage)
 		return rec.body.Bytes(), contentTypeOrJSON(rec.header), http.StatusOK, err
-	case mode.Responses:
+	case mode.Responses, mode.ResponsesCompact:
 		_, err := writeResponses(meta, discardStore{}, gc, cfg, reqCtx, usage)
 		return rec.body.Bytes(), contentTypeOrJSON(rec.header), http.StatusCreated, err
 	case mode.ResponsesGet:
@@ -304,6 +304,9 @@ func buildResponseBody(
 		return rec.body.Bytes(), contentTypeOrJSON(rec.header), http.StatusOK, nil
 	case mode.ResponsesInputItems:
 		writeResponsesInputItems(meta, gc, cfg)
+		return rec.body.Bytes(), contentTypeOrJSON(rec.header), http.StatusOK, nil
+	case mode.ResponsesInputTokens:
+		_ = writeResponsesGet(meta, gc, cfg, usage)
 		return rec.body.Bytes(), contentTypeOrJSON(rec.header), http.StatusOK, nil
 	default:
 		return nil, "", 0, fmt.Errorf("unsupported mode: %s", meta.Mode)

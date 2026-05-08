@@ -71,7 +71,9 @@ func GetRequestURL(meta *meta.Meta) (adaptor.RequestURL, error) {
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		responsesBaseURL, err := url.JoinPath(u, "/api/v3")
 		if err != nil {
 			return adaptor.RequestURL{}, err
@@ -102,7 +104,9 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		m == mode.ResponsesGet ||
 		m == mode.ResponsesDelete ||
 		m == mode.ResponsesCancel ||
-		m == mode.ResponsesInputItems
+		m == mode.ResponsesInputItems ||
+		m == mode.ResponsesCompact ||
+		m == mode.ResponsesInputTokens
 }
 
 func (a *Adaptor) Metadata() adaptor.Metadata {

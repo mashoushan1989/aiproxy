@@ -52,7 +52,9 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		m == mode.ResponsesGet ||
 		m == mode.ResponsesDelete ||
 		m == mode.ResponsesCancel ||
-		m == mode.ResponsesInputItems
+		m == mode.ResponsesInputItems ||
+		m == mode.ResponsesCompact ||
+		m == mode.ResponsesInputTokens
 }
 
 func (a *Adaptor) GetRequestURL(
@@ -147,7 +149,9 @@ func (a *Adaptor) GetRequestURL(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		responsesBaseURL, err := url.JoinPath(u, "/compatible-mode/v1")
 		if err != nil {
 			return adaptor.RequestURL{}, err
@@ -199,7 +203,9 @@ func (a *Adaptor) ConvertRequest(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		return openai.ConvertRequest(meta, store, req)
 	default:
 		return adaptor.ConvertResult{}, fmt.Errorf("unsupported mode: %s", meta.Mode)
@@ -255,7 +261,9 @@ func (a *Adaptor) DoResponse(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		return openai.DoResponse(meta, store, c, resp)
 	default:
 		return adaptor.DoResponseResult{}, relaymodel.WrapperOpenAIErrorWithMessage(

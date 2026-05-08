@@ -56,6 +56,8 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		m == mode.ResponsesDelete ||
 		m == mode.ResponsesCancel ||
 		m == mode.ResponsesInputItems ||
+		m == mode.ResponsesCompact ||
+		m == mode.ResponsesInputTokens ||
 		m == mode.WebSearch
 }
 
@@ -72,7 +74,9 @@ func (a *Adaptor) GetRequestURL(
 		mode.ResponsesGet,
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
-		mode.ResponsesInputItems:
+		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens:
 		return ResponsesURL(u, meta.Mode, meta.ResponseID)
 
 	case mode.ChatCompletions, mode.Anthropic, mode.Gemini:
@@ -252,9 +256,10 @@ func ConvertRequest(
 	}
 
 	switch meta.Mode {
-	case mode.Responses:
+	case mode.Responses, mode.ResponsesCompact:
 		return ConvertResponseRequest(meta, req)
-	case mode.ResponsesGet, mode.ResponsesDelete, mode.ResponsesCancel, mode.ResponsesInputItems:
+	case mode.ResponsesGet, mode.ResponsesDelete, mode.ResponsesCancel,
+		mode.ResponsesInputItems, mode.ResponsesInputTokens:
 		// These endpoints don't need request conversion
 		return adaptor.ConvertResult{}, nil
 	case mode.Moderations:
@@ -326,6 +331,14 @@ func DoResponse(
 		result, err = CancelResponseHandler(meta, c, resp)
 	case mode.ResponsesInputItems:
 		result, err = GetInputItemsHandler(meta, c, resp)
+	case mode.ResponsesCompact:
+		if utils.IsStreamResponse(resp) {
+			result, err = ResponseStreamHandler(meta, store, c, resp)
+		} else {
+			result, err = ResponseHandler(meta, store, c, resp)
+		}
+	case mode.ResponsesInputTokens:
+		result, err = GetResponseHandler(meta, c, resp)
 	case mode.ImagesGenerations, mode.ImagesEdits:
 		if utils.IsStreamResponse(resp) {
 			result, err = ImagesStreamHandler(meta, c, resp)

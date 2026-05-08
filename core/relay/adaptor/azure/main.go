@@ -276,6 +276,36 @@ func GetRequestURL(meta *meta.Meta, replaceDot bool) (adaptor.RequestURL, error)
 			URL:    fmt.Sprintf("%s?api-version=%s", url, "preview"),
 		}, nil
 
+	case mode.ResponsesCompact:
+		// POST https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/responses/compact?api-version=preview
+		url, err := url.JoinPath(
+			meta.Channel.BaseURL,
+			"/openai/v1/responses/compact",
+		)
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return adaptor.RequestURL{
+			Method: http.MethodPost,
+			URL:    fmt.Sprintf("%s?api-version=%s", url, "preview"),
+		}, nil
+
+	case mode.ResponsesInputTokens:
+		// POST https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/responses/input_tokens?api-version=preview
+		url, err := url.JoinPath(
+			meta.Channel.BaseURL,
+			"/openai/v1/responses/input_tokens",
+		)
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return adaptor.RequestURL{
+			Method: http.MethodPost,
+			URL:    fmt.Sprintf("%s?api-version=%s", url, "preview"),
+		}, nil
+
 	case mode.ResponsesGet:
 		// GET https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1/responses/{response_id}?api-version=preview
 		url, err := url.JoinPath(

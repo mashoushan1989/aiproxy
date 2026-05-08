@@ -323,7 +323,8 @@ func CheckRelayMode(requestMode, modelMode mode.Mode) bool {
 
 	switch requestMode {
 	case mode.ChatCompletions, mode.Completions, mode.Anthropic, mode.Gemini,
-		mode.Responses, mode.ResponsesGet, mode.ResponsesDelete, mode.ResponsesCancel, mode.ResponsesInputItems:
+		mode.Responses, mode.ResponsesGet, mode.ResponsesDelete, mode.ResponsesCancel,
+		mode.ResponsesInputItems, mode.ResponsesCompact, mode.ResponsesInputTokens:
 		return modelMode == mode.ChatCompletions ||
 			modelMode == mode.Completions ||
 			modelMode == mode.Anthropic ||
@@ -332,7 +333,9 @@ func CheckRelayMode(requestMode, modelMode mode.Mode) bool {
 			modelMode == mode.ResponsesGet ||
 			modelMode == mode.ResponsesDelete ||
 			modelMode == mode.ResponsesCancel ||
-			modelMode == mode.ResponsesInputItems
+			modelMode == mode.ResponsesInputItems ||
+			modelMode == mode.ResponsesCompact ||
+			modelMode == mode.ResponsesInputTokens
 	case mode.ImagesGenerations, mode.ImagesEdits:
 		return modelMode == mode.ImagesGenerations ||
 			modelMode == mode.ImagesEdits
@@ -690,7 +693,7 @@ func getRequestModel(c *gin.Context, m mode.Mode, group string, tokenID int) (st
 		c.Set(ChannelID, store.ChannelID)
 
 		return store.Model, nil
-	case m == mode.Responses:
+	case m == mode.Responses || m == mode.ResponsesCompact || m == mode.ResponsesInputTokens:
 		body, err := common.GetRequestBodyReusable(c.Request)
 		if err != nil {
 			return "", fmt.Errorf("get request model failed: %w", err)

@@ -48,6 +48,10 @@ func (m Mode) String() string {
 		return "ResponsesCancel"
 	case ResponsesInputItems:
 		return "ResponsesInputItems"
+	case ResponsesCompact:
+		return "ResponsesCompact"
+	case ResponsesInputTokens:
+		return "ResponsesInputTokens"
 	case Gemini:
 		return "Gemini"
 	case WebSearch:
@@ -81,6 +85,8 @@ const (
 	ResponsesDelete
 	ResponsesCancel
 	ResponsesInputItems
+	ResponsesCompact
+	ResponsesInputTokens
 	Gemini
 	WebSearch
 	// PPIONative is for PPIO multimodal models (image/video/audio) that use

@@ -150,6 +150,8 @@ func ModelTypeNameToType(typeName string) mode.Mode {
 		"responsesdelete":         mode.ResponsesDelete,
 		"responsescancel":         mode.ResponsesCancel,
 		"responsesinputitems":     mode.ResponsesInputItems,
+		"responsescompact":        mode.ResponsesCompact,
+		"responsesinputtokens":    mode.ResponsesInputTokens,
 	}
 
 	if typ, ok := typeMap[typeName]; ok {

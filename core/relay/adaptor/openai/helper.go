@@ -55,6 +55,22 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 
 		return adaptor.RequestURL{Method: http.MethodGet, URL: u}, nil
 
+	case mode.ResponsesCompact:
+		u, err := url.JoinPath(base, "/responses", "compact")
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+
+	case mode.ResponsesInputTokens:
+		u, err := url.JoinPath(base, "/responses", "input_tokens")
+		if err != nil {
+			return adaptor.RequestURL{}, err
+		}
+
+		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+
 	default:
 		return adaptor.RequestURL{}, fmt.Errorf("unsupported responses mode: %s", m)
 	}

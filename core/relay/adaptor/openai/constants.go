@@ -268,7 +268,9 @@ func IsResponsesOnlyModel(modelConfig *model.ModelConfig, modelName string) bool
 			mode.ResponsesGet,
 			mode.ResponsesDelete,
 			mode.ResponsesCancel,
-			mode.ResponsesInputItems:
+			mode.ResponsesInputItems,
+			mode.ResponsesCompact,
+			mode.ResponsesInputTokens:
 			return true
 		}
 	}

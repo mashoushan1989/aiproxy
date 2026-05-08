@@ -132,6 +132,10 @@ func SetRelayRouter(router *gin.Engine) {
 		relayRouter.GET(
 			"/responses/:response_id/input_items",
 			controller.GetResponseInputItems()...)
+		relayRouter.POST("/responses/compact",
+			controller.CompactResponse()...)
+		relayRouter.POST("/responses/input_tokens",
+			controller.GetResponseInputTokens()...)
 
 		relayRouter.POST("/images/variations", controller.RelayNotImplemented)
 		relayRouter.GET("/files", controller.RelayNotImplemented)

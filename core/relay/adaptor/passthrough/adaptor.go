@@ -137,6 +137,8 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		mode.ResponsesDelete,
 		mode.ResponsesCancel,
 		mode.ResponsesInputItems,
+		mode.ResponsesCompact,
+		mode.ResponsesInputTokens,
 		mode.WebSearch:
 		return true
 	}

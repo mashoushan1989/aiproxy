@@ -38,7 +38,9 @@ func (a *Adaptor) SupportMode(m mode.Mode) bool {
 		m == mode.ResponsesGet ||
 		m == mode.ResponsesDelete ||
 		m == mode.ResponsesCancel ||
-		m == mode.ResponsesInputItems
+		m == mode.ResponsesInputItems ||
+		m == mode.ResponsesCompact ||
+		m == mode.ResponsesInputTokens
 }
 
 func (a *Adaptor) GetRequestURL(
@@ -151,7 +153,7 @@ func (a *Adaptor) DoResponse(
 		return writeAnthropic(meta, c, cfg, reqCtx, usage)
 	case mode.Gemini:
 		return writeGemini(meta, c, cfg, reqCtx, usage)
-	case mode.Responses:
+	case mode.Responses, mode.ResponsesCompact:
 		return writeResponses(meta, store, c, cfg, reqCtx, usage)
 	case mode.ResponsesGet:
 		return writeResponsesGet(meta, c, cfg, usage), nil
@@ -163,6 +165,8 @@ func (a *Adaptor) DoResponse(
 	case mode.ResponsesInputItems:
 		writeResponsesInputItems(meta, c, cfg)
 		return adaptor.DoResponseResult{}, nil
+	case mode.ResponsesInputTokens:
+		return writeResponsesGet(meta, c, cfg, usage), nil
 	default:
 		return adaptor.DoResponseResult{}, relaymodel.WrapperErrorWithMessage(
 			meta.Mode,
