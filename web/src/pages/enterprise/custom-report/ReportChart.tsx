@@ -13,8 +13,8 @@ import {
     formatDimValue,
     formatCellValue,
     recommendChartType,
-    sortRowsByTime,
 } from "./types"
+import { getRowsForReportView } from "./reportSorting"
 
 /** Estimate legend rows and compute grid top offset so legend never overlaps chart */
 function legendGridTop(itemCount: number, containerWidth = 800): number {
@@ -189,6 +189,7 @@ export function ReportChart({
     rightAxisMeasures = [],
     lang,
     fullscreen = false,
+    sortBy,
 }: {
     data: CustomReportResponse
     dimensions: string[]
@@ -198,6 +199,7 @@ export function ReportChart({
     rightAxisMeasures?: string[]
     lang: string
     fullscreen?: boolean
+    sortBy?: string
 }) {
     const chartRef = useRef<HTMLDivElement>(null)
     const instance = useRef<echarts.ECharts | null>(null)
@@ -215,8 +217,7 @@ export function ReportChart({
 
         const { primary, secondary } = splitDimensions(dimensions)
 
-        // Sort rows by time dimension if present
-        const rows = sortRowsByTime(data.rows, dimensions)
+        const rows = getRowsForReportView(data.rows, dimensions, sortBy)
 
         // Build formatted labels from all dimensions (for single-dim charts)
         const labels = rows.map((row) =>
@@ -680,7 +681,7 @@ export function ReportChart({
         return () => {
             window.removeEventListener("resize", handleResize)
         }
-    }, [data, dimensions, measures, chartType, axisMode, rightAxisMeasures, lang, isDark])
+    }, [data, dimensions, measures, chartType, axisMode, rightAxisMeasures, lang, isDark, sortBy])
 
     // Estimate legend count for dynamic height
     const legendCount = useMemo(() => {

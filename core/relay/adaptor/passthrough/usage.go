@@ -30,6 +30,12 @@ func extractUsageFromHead(head []byte) model.Usage {
 	return extractUsageFromBytes(head, true)
 }
 
+// ExtractUsageFromBytes locates a "usage" JSON object in data.
+// firstOccurrence=true returns the first match; false returns the last.
+func ExtractUsageFromBytes(data []byte, firstOccurrence bool) model.Usage {
+	return extractUsageFromBytes(data, firstOccurrence)
+}
+
 // extractUsageFromBytes locates a "usage" JSON object in data.
 // firstOccurrence=true returns the first match; false returns the last.
 func extractUsageFromBytes(data []byte, firstOccurrence bool) model.Usage {

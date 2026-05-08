@@ -45,6 +45,8 @@ import { AxisModePicker } from "./AxisModePicker"
 import { DashboardGrid } from "./DashboardGrid"
 import { TemplateManager } from "./TemplateManager"
 import { SkeletonChart, EmptyState } from "./EmptyState"
+import { ReportSortControl } from "./ReportSortControl"
+import { getEffectiveSortBy, type SortOrder } from "./reportSorting"
 
 export default function EnterpriseCustomReport() {
     const { t, i18n } = useTranslation()
@@ -68,7 +70,7 @@ export default function EnterpriseCustomReport() {
     const [rightAxisMeasures, setRightAxisMeasures] = useState<string[]>(() => DEFAULT_MEASURES.slice(-1))
     const [reportData, setReportData] = useState<CustomReportResponse | null>(null)
     const [sortBy, setSortBy] = useState<string | undefined>()
-    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
+    const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
     const [pivotMeasure, setPivotMeasure] = useState<string>("")
 
     // Drill-down state
@@ -128,12 +130,13 @@ export default function EnterpriseCustomReport() {
         const controller = new AbortController()
         abortRef.current = controller
 
+        const effectiveSortBy = getEffectiveSortBy(sortBy, d, m)
         const req: CustomReportRequest = {
             dimensions: d,
             measures: m,
             filters,
             time_range: { start_timestamp: start, end_timestamp: end },
-            sort_by: sortBy,
+            sort_by: effectiveSortBy,
             sort_order: sortOrder,
             limit: 200,
             timezone_offset_seconds: tzOffsetSec,
@@ -217,7 +220,7 @@ export default function EnterpriseCustomReport() {
 
     // Sort handler — only update state; the debounced useEffect re-fetches
     // from backend with the new sort_by/sort_order, avoiding stale-data flicker.
-    const handleSort = (key: string, order: "asc" | "desc") => {
+    const handleSort = (key: string, order: SortOrder) => {
         setSortBy(key)
         setSortOrder(order)
     }
@@ -329,6 +332,7 @@ export default function EnterpriseCustomReport() {
     }, [])
 
     const hasResults = reportData && reportData.rows.length > 0
+    const effectiveSortBy = getEffectiveSortBy(sortBy, selectedDimensions, selectedMeasures)
 
     // Template manager slot for ConfigPanel
     const templateManagerSlot = (
@@ -477,6 +481,13 @@ export default function EnterpriseCustomReport() {
                                             shown: reportData.rows.length.toLocaleString(),
                                             total: reportData.total.toLocaleString(),
                                         })}
+                                        {effectiveSortBy && (
+                                            <span className="ml-1">
+                                                {lang.startsWith("zh")
+                                                    ? `当前按 ${getLabel(effectiveSortBy, lang)} ${sortOrder === "desc" ? "降序" : "升序"} 截取。`
+                                                    : `Currently limited after sorting by ${getLabel(effectiveSortBy, lang)} ${sortOrder}.`}
+                                            </span>
+                                        )}
                                     </span>
                                     {canExport && (
                                         <Button variant="link" size="sm" className="text-amber-700 dark:text-amber-300 p-0 h-auto" onClick={handleExportCsv}>
@@ -557,6 +568,14 @@ export default function EnterpriseCustomReport() {
                                 )}
 
                                 <div className="ml-auto flex items-center gap-2">
+                                    <ReportSortControl
+                                        columns={reportData.columns}
+                                        sortBy={effectiveSortBy}
+                                        sortOrder={sortOrder}
+                                        lang={lang}
+                                        onSortChange={handleSort}
+                                    />
+
                                     {/* Fullscreen (chart/split modes only) */}
                                     {(viewMode === "chart" || viewMode === "split") && (
                                         <TooltipProvider>
@@ -618,6 +637,7 @@ export default function EnterpriseCustomReport() {
                                                 axisMode={axisMode}
                                                 rightAxisMeasures={rightAxisMeasures}
                                                 lang={lang}
+                                                sortBy={effectiveSortBy}
                                             />
                                         </div>
                                     )}
@@ -715,6 +735,7 @@ export default function EnterpriseCustomReport() {
                                 rightAxisMeasures={rightAxisMeasures}
                                 lang={lang}
                                 fullscreen={true}
+                                sortBy={effectiveSortBy}
                             />
                         </div>
                     </div>

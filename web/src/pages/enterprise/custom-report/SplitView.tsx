@@ -47,6 +47,7 @@ export function SplitView({
                     axisMode={axisMode}
                     rightAxisMeasures={rightAxisMeasures}
                     lang={lang}
+                    sortBy={sortBy}
                 />
             </div>
 

@@ -11,7 +11,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { CustomReportResponse } from "@/api/enterprise"
-import { getLabel, formatCellValue, PERCENTAGE_FIELDS, COST_FIELDS, ADDITIVE_MEASURES, canDrillDown, sortRowsByTime } from "./types"
+import { getLabel, formatCellValue, PERCENTAGE_FIELDS, COST_FIELDS, ADDITIVE_MEASURES, canDrillDown } from "./types"
+import { getRowsForReportView, type SortOrder } from "./reportSorting"
 
 // ─── Conditional coloring helpers ───────────────────────────────────────────
 
@@ -78,15 +79,15 @@ export function ReportTable({
     data: CustomReportResponse
     dimensions: string[]
     sortBy: string | undefined
-    sortOrder: "asc" | "desc"
-    onSort: (key: string, order: "asc" | "desc") => void
+    sortOrder: SortOrder
+    onSort: (key: string, order: SortOrder) => void
     /** Called when a drillable dimension cell is clicked */
     onDrill?: (dimension: string, value: string, label: string) => void
 }) {
     const { i18n, t } = useTranslation()
     const lang = i18n.language
 
-    const rows = sortBy ? data.rows : sortRowsByTime(data.rows, dimensions)
+    const rows = getRowsForReportView(data.rows, dimensions, sortBy)
     const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
     const [page, setPage] = useState(0)
 
