@@ -255,8 +255,8 @@ shadow_strict_would_reject model=pa/claude-opus-4-7 set=overseas reason=not_foun
 | 阶段 | 操作 | 风险 |
 |---|---|---|
 | **T-1 晚** | 海外节点 `DISABLE_NOVITA_AUTO_SYNC=true` + 重启（避免窗口期写污染） | 0 |
-| **T+0** | 国内节点 `deploy.sh`（GORM AutoMigrate 自动加 `synced_from` / `missing_count` 列；`migrateModelConfigSyncedFrom` 自动 backfill） | 极低 |
-| **T+0** | 海外节点 `deploy.sh` | 极低 |
+| **T+0** | 国内节点私有零停机部署入口（GORM AutoMigrate 自动加 `synced_from` / `missing_count` 列；`migrateModelConfigSyncedFrom` 自动 backfill） | 极低 |
+| **T+0** | 海外节点私有零停机部署入口 | 极低 |
 | **T+0+30min** | 手动 trigger 一次 PPIO sync 验证 | 0 |
 | **T+0+60min** | 手动 trigger 一次 Novita sync 验证；`DISABLE_NOVITA_AUTO_SYNC=` 取消禁用 | 0 |
 | **T+24h~T+48h** | 观察 `shadow_strict_would_reject` 日志数量与涉及 model | 0 |
@@ -277,7 +277,7 @@ SELECT model FROM model_configs;
 
 ### 9.3 回滚
 
-- **代码**：`bash scripts/deploy.sh --rollback`，~5 分钟
+- **代码**：使用私有零停机部署入口回滚，~5 分钟
 - **数据**：synced_from 字段是 additive，旧代码完全可读（GORM SELECT 忽略未知字段）。**无需回滚 schema**
 - **strict mode**：删 env + 重启，~5 分钟
 - **advisory lock**：session 结束自动释放，无需手动清理
