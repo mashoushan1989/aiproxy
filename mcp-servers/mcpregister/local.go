@@ -4,7 +4,6 @@ import (
 	// register local mcp
 	_ "github.com/labring/aiproxy/mcp-servers/local/1panel"
 	_ "github.com/labring/aiproxy/mcp-servers/local/ableton"
-	_ "github.com/labring/aiproxy/mcp-servers/local/academic-search"
 	_ "github.com/labring/aiproxy/mcp-servers/local/alibabacloud-dms"
 	_ "github.com/labring/aiproxy/mcp-servers/local/alipay"
 	_ "github.com/labring/aiproxy/mcp-servers/local/allvoicelab"

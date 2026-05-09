@@ -88,6 +88,17 @@ jobs:
         with:
           go-version-file: "core/go.mod"
 
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.x
+
+      - name: Install web dependencies for license scan
+        working-directory: web
+        run: |
+          npm install -g pnpm
+          pnpm install --frozen-lockfile
+
       - name: Generate Swagger
         working-directory: core
         run: bash scripts/swag.sh
@@ -99,6 +110,9 @@ jobs:
           GOARCH: ${{ matrix.targets.GOARCH }}
         run: |
           go build -tags enterprise -trimpath -ldflags "-s -w" -o aiproxy-${GOOS}-${GOARCH}${{ matrix.targets.EXT }}
+
+      - name: Generate third-party notices
+        run: bash scripts/generate-third-party-notices.sh
 
       - name: Verify enterprise build
         if: ${{ matrix.targets.GOOS == 'linux' && matrix.targets.GOARCH == 'amd64' }}
@@ -143,8 +157,15 @@ jobs:
 
           asset_file="core/aiproxy-${{ matrix.targets.GOOS }}-${{ matrix.targets.GOARCH }}${{ matrix.targets.EXT }}"
           prerelease_flag=""
+          common_assets=()
 
           test -f "${asset_file}"
+          test -f LICENSE
+          test -f THIRD_PARTY_NOTICES.md
+
+          if [[ "${{ matrix.targets.GOOS }}" == "linux" && "${{ matrix.targets.GOARCH }}" == "amd64" ]]; then
+            common_assets=(LICENSE THIRD_PARTY_NOTICES.md)
+          fi
 
           if [[ "${{ steps.release_meta.outputs.PRERELEASE }}" == "true" ]]; then
             prerelease_flag="--prerelease"
@@ -156,7 +177,10 @@ jobs:
             --generate-notes \
             ${prerelease_flag} \
             "${asset_file}" \
-          || gh release upload "${{ steps.release_meta.outputs.TAG_NAME }}" "${asset_file}"
+            "${common_assets[@]}" \
+          || gh release upload "${{ steps.release_meta.outputs.TAG_NAME }}" \
+            "${asset_file}" \
+            "${common_assets[@]}"
 
   build-docker-images:
     name: Build Docker Images

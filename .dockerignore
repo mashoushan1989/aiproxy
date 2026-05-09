@@ -15,6 +15,7 @@ scripts/*.db
 # DO NOT exclude core/**/*.md or mcp-servers/**/*.md — they are go:embed sources.
 # mcp-servers/*/init.go embeds README.md and README.cn.md at build time.
 /*.md
+!/THIRD_PARTY_NOTICES.md
 enterprise/**/*.md
 openapi-mcp/**/*.md
 

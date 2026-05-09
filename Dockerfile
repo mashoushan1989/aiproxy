@@ -72,12 +72,14 @@ RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
     rm -rf /var/cache/apk/*
 
 RUN mkdir -p /aiproxy
+RUN mkdir -p /usr/share/doc/aiproxy
 
 WORKDIR /aiproxy
 
 VOLUME /aiproxy
 
 COPY --from=builder /aiproxy/core/aiproxy /usr/local/bin/aiproxy
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/aiproxy/
 
 ENV PUID=0 PGID=0 UMASK=022
 
