@@ -48,6 +48,8 @@ import { SkeletonChart, EmptyState } from "./EmptyState"
 import { ReportSortControl } from "./ReportSortControl"
 import { getEffectiveSortBy, type SortOrder } from "./reportSorting"
 
+const CUSTOM_REPORT_DEFAULT_LIMIT = 5000
+
 export default function EnterpriseCustomReport() {
     const { t, i18n } = useTranslation()
     const lang = i18n.language
@@ -138,7 +140,7 @@ export default function EnterpriseCustomReport() {
             time_range: { start_timestamp: start, end_timestamp: end },
             sort_by: effectiveSortBy,
             sort_order: sortOrder,
-            limit: 200,
+            limit: CUSTOM_REPORT_DEFAULT_LIMIT,
             timezone_offset_seconds: tzOffsetSec,
         }
         mutateRef.current({ req, signal: controller.signal }, {

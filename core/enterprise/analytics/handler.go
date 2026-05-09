@@ -12,6 +12,21 @@ import (
 	"github.com/labring/aiproxy/core/middleware"
 )
 
+const (
+	defaultCustomReportLimit = 5000
+	maxCustomReportLimit     = 10000
+)
+
+func normalizeCustomReportLimit(limit int) int {
+	if limit <= 0 {
+		return defaultCustomReportLimit
+	}
+	if limit > maxCustomReportLimit {
+		return maxCustomReportLimit
+	}
+	return limit
+}
+
 // HandleDepartmentSummary returns department-level aggregated usage data.
 func HandleDepartmentSummary(c *gin.Context) {
 	startTime, endTime := parseTimeRange(c)
@@ -130,13 +145,7 @@ func HandleCustomReport(c *gin.Context) {
 		return
 	}
 
-	if req.Limit <= 0 {
-		req.Limit = 100
-	}
-
-	if req.Limit > 1000 {
-		req.Limit = 1000
-	}
+	req.Limit = normalizeCustomReportLimit(req.Limit)
 
 	report, err := GenerateCustomReport(req)
 	if err != nil {

@@ -53,6 +53,8 @@ function computeChartHeight(legendCount: number, fullscreen: boolean): number {
     return Math.min(legendHeight + minChartArea, maxHeight)
 }
 
+const MAX_CHART_ROWS = 10000
+
 /** Compute rotation and interval for X-axis labels */
 function xAxisLabelConfig(labels: string[]): { rotate: number; interval: number; fontSize: number } {
     const count = labels.length
@@ -61,6 +63,42 @@ function xAxisLabelConfig(labels: string[]): { rotate: number; interval: number;
     if (count <= 15) return { rotate: 30, interval: 0, fontSize: 10 }
     if (count <= 31) return { rotate: 45, interval: 0, fontSize: 10 }
     return { rotate: 45, interval: Math.floor(count / 25), fontSize: 9 }
+}
+
+function xAxisVisibleLabelStep(visibleCount: number): number {
+    if (visibleCount <= 31) return 1
+    if (visibleCount <= 80) return 2
+    return Math.max(1, Math.ceil(visibleCount / 40))
+}
+
+function xAxisDynamicInterval(labels: string[]): (index: number) => boolean {
+    let visibleStart = 0
+    let visibleEnd = labels.length - 1
+
+    return (index: number) => {
+        const visibleCount = Math.max(visibleEnd - visibleStart + 1, 1)
+        const step = xAxisVisibleLabelStep(visibleCount)
+        return index === visibleStart || index === visibleEnd || (index - visibleStart) % step === 0
+    }
+}
+
+function updateXAxisLabelWindow(chart: echarts.ECharts, labels: string[], start: number, end: number) {
+    if (labels.length === 0) return
+    const maxIndex = labels.length - 1
+    const visibleStart = Math.max(0, Math.min(maxIndex, Math.floor(start)))
+    const visibleEnd = Math.max(visibleStart, Math.min(maxIndex, Math.ceil(end)))
+    const visibleCount = Math.max(visibleEnd - visibleStart + 1, 1)
+    const step = xAxisVisibleLabelStep(visibleCount)
+    chart.setOption({
+        xAxis: {
+            axisLabel: {
+                interval: (index: number) =>
+                    index === visibleStart ||
+                    index === visibleEnd ||
+                    (index - visibleStart) % step === 0,
+            },
+        },
+    })
 }
 
 // Separate dimensions into primary (X-axis) and secondary (series grouping).
@@ -217,7 +255,7 @@ export function ReportChart({
 
         const { primary, secondary } = splitDimensions(dimensions)
 
-        const rows = getRowsForReportView(data.rows, dimensions, sortBy)
+        const rows = getRowsForReportView(data.rows, dimensions, sortBy).slice(0, MAX_CHART_ROWS)
 
         // Build formatted labels from all dimensions (for single-dim charts)
         const labels = rows.map((row) =>
@@ -234,6 +272,7 @@ export function ReportChart({
         const rightAxisMeasureList = numericMeasures.filter((measure) => rightAxisSet.has(measure))
 
         let option: echarts.EChartsOption
+        let activeXAxisLabels: string[] = []
 
         switch (resolvedType) {
             case "pie": {
@@ -282,6 +321,7 @@ export function ReportChart({
                 const dim1 = dimensions[1]
                 const dim0Values = [...new Set(rows.map((r) => formatDimValue(dim0, r[dim0])))]
                 const dim1Values = [...new Set(rows.map((r) => formatDimValue(dim1, r[dim1])))]
+                activeXAxisLabels = dim0Values
                 const measure = numericMeasures[0]
                 if (!measure) return
 
@@ -447,6 +487,7 @@ export function ReportChart({
                 if (secondary) {
                     // ── Multi-dimension: primary = X-axis, secondary = series grouping ──
                     const primaryValues = [...new Set(rows.map((r) => formatDimValue(primary, r[primary])))]
+                    activeXAxisLabels = primaryValues
                     const rawSecondaryValues = [...new Set(rows.map((r) => formatDimValue(secondary, r[secondary])))]
                     const sortMeasure = numericMeasures[0]
                     const maxVisibleSeries = numericMeasures.length > 1 ? 6 : 10
@@ -488,6 +529,7 @@ export function ReportChart({
                     }
 
                     const labelCfg = xAxisLabelConfig(primaryValues)
+                    const labelInterval = xAxisDynamicInterval(primaryValues)
 
                     // Build series: for each (secondaryValue, measure) pair
                     // If only 1 measure, series name = secondaryValue (cleaner legend)
@@ -582,7 +624,7 @@ export function ReportChart({
                         xAxis: {
                             type: "category",
                             data: primaryValues,
-                            axisLabel: { rotate: labelCfg.rotate, interval: labelCfg.interval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
+                            axisLabel: { rotate: labelCfg.rotate, interval: labelInterval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
                         },
                         yAxis: useDualAxis
                             ? [
@@ -594,8 +636,10 @@ export function ReportChart({
                     }
                 } else {
                     // ── Single dimension: each measure is a series ──
-                    const xLabels = rows.slice(0, 50).map((row) => formatDimValue(primary, row[primary]))
+                    const xLabels = rows.map((row) => formatDimValue(primary, row[primary]))
+                    activeXAxisLabels = xLabels
                     const labelCfg = xAxisLabelConfig(xLabels)
+                    const labelInterval = xAxisDynamicInterval(xLabels)
 
                     const singleGridTop = legendGridTop(numericMeasures.length)
 
@@ -630,7 +674,7 @@ export function ReportChart({
                         xAxis: {
                             type: "category",
                             data: xLabels,
-                            axisLabel: { rotate: labelCfg.rotate, interval: labelCfg.interval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
+                            axisLabel: { rotate: labelCfg.rotate, interval: labelInterval, fontSize: labelCfg.fontSize, color: theme.subTextColor },
                         },
                         yAxis: useDualAxis
                             ? [
@@ -641,7 +685,7 @@ export function ReportChart({
                         series: numericMeasures.map((m, i) => {
                             // Preserve null (from safeDivide) so echarts skips the point
                             // instead of plotting 0 for "no data" ratios.
-                            const seriesData = rows.slice(0, 50).map((row) => {
+                            const seriesData = rows.map((row) => {
                                 const v = row[m]
                                 return v == null ? null : Number(v)
                             })
@@ -674,11 +718,42 @@ export function ReportChart({
             }
         }
 
-        instance.current.setOption(option, true)
+        const chart = instance.current
+        chart.setOption(option, true)
+
+        const handleDataZoom = (event: unknown) => {
+            if (activeXAxisLabels.length === 0) return
+
+            const params = event as {
+                start?: number
+                end?: number
+                startValue?: number | string
+                endValue?: number | string
+                batch?: Array<{
+                    start?: number
+                    end?: number
+                    startValue?: number | string
+                    endValue?: number | string
+                }>
+            }
+            const zoom = params.batch?.[0] ?? params
+            const maxIndex = activeXAxisLabels.length - 1
+            const start = typeof zoom.startValue === "number"
+                ? zoom.startValue
+                : Math.round(((zoom.start ?? 0) / 100) * maxIndex)
+            const end = typeof zoom.endValue === "number"
+                ? zoom.endValue
+                : Math.round(((zoom.end ?? 100) / 100) * maxIndex)
+
+            updateXAxisLabelWindow(chart, activeXAxisLabels, start, end)
+        }
+        chart.off("dataZoom")
+        chart.on("dataZoom", handleDataZoom)
 
         const handleResize = () => instance.current?.resize()
         window.addEventListener("resize", handleResize)
         return () => {
+            chart.off("dataZoom", handleDataZoom)
             window.removeEventListener("resize", handleResize)
         }
     }, [data, dimensions, measures, chartType, axisMode, rightAxisMeasures, lang, isDark, sortBy])

@@ -258,17 +258,17 @@ var measureLabels = map[string]string{
 	"avg_requests_per_user": "活跃用户人均请求数",
 
 	// Computed: cost structure
-	"output_input_ratio":    "输出/总输入比 (含缓存)",
-	"cost_per_1k_tokens":    "千Token成本",
-	"cost_per_input_1k":     "千输入Token混合成本",
-	"cost_per_output_1k":    "千输出Token成本",
-	"input_cost_pct":        "输入费用占比 (%)",
-	"output_cost_pct":       "输出费用占比 (%)",
-	"cached_cost_pct":       "缓存读取费用占比 (%)",
+	"output_input_ratio":      "输出/总输入比 (含缓存)",
+	"cost_per_1k_tokens":      "千Token成本",
+	"cost_per_input_1k":       "千输入Token混合成本",
+	"cost_per_output_1k":      "千输出Token成本",
+	"input_cost_pct":          "输入费用占比 (%)",
+	"output_cost_pct":         "输出费用占比 (%)",
+	"cached_cost_pct":         "缓存读取费用占比 (%)",
 	"cache_creation_cost_pct": "缓存创建费用占比 (%)",
 	"cache_total_cost_pct":    "缓存总费用占比 (%)",
 	"reasoning_cost_pct":      "推理费用占比 (%)",
-	"reconciliation_tokens": "对账 Token (不含缓存)",
+	"reconciliation_tokens":   "对账 Token (不含缓存)",
 }
 
 // dimensionLabels provides human-readable labels for dimensions.
@@ -425,11 +425,10 @@ func GenerateCustomReport(req CustomReportRequest) (*CustomReportResponse, error
 	// repeated queries with identical parameters return rows in the same order.
 	sortResults(result, req.SortBy, req.SortOrder, req.Dimensions)
 
-	// Apply limit (default cap: 1000 rows)
+	// Apply the normalized API limit. GenerateCustomReport may also be called
+	// directly in tests or jobs, so keep a defensive normalization here.
 	limit := req.Limit
-	if limit <= 0 || limit > 1000 {
-		limit = 1000
-	}
+	limit = normalizeCustomReportLimit(limit)
 
 	total := len(result)
 	if len(result) > limit {
