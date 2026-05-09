@@ -177,12 +177,14 @@ func loadAnthropicConfig(m *meta.Meta) Config {
 }
 
 // shouldPassthrough is the single dispatch guard used across Adaptor methods:
-// delegate to the byte-level passthrough path only when mode.Anthropic AND
-// pure_passthrough=true. ChatCompletions/Gemini (cross-protocol conversion)
-// and mode.Anthropic with pure_passthrough=false (direct Anthropic API) fall
-// through to the legacy protocol-handling path.
+// delegate to the byte-level passthrough path only when mode.Anthropic AND the
+// channel selects pure passthrough. ChatCompletions/Gemini (cross-protocol
+// conversion) and mode.Anthropic with conversion selected fall through to the
+// legacy protocol-handling path.
 func (a *Adaptor) shouldPassthrough(m *meta.Meta) bool {
-	return m.Mode == mode.Anthropic && loadAnthropicConfig(m).PurePassthrough
+	return m.Mode == mode.Anthropic &&
+		(loadAnthropicConfig(m).PurePassthrough ||
+			model.RouteKind(m.ChannelConfigs.GetString(model.ChannelConfigRouteKind)) == model.RouteKindPurePassthrough)
 }
 
 func (a *Adaptor) SetupRequestHeader(
@@ -308,6 +310,15 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
 		Readme: "Support native Endpoint: /v1/messages",
 		Models: ModelList,
+		PassthroughCapability: model.ChannelCapability{
+			Protocol:           model.PassthroughProtocolAnthropic,
+			AuthScheme:         model.PassthroughAuthSchemeXAPIKey,
+			PathPolicy:         model.PassthroughPathPolicyStripV1,
+			ModelMappingPolicy: model.PassthroughModelMappingBodyModel,
+			EndpointFamilies: []model.EndpointFamily{
+				model.EndpointFamilyMessages,
+			},
+		},
 		ConfigSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -346,8 +357,18 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 				},
 				"pure_passthrough": map[string]any{
 					"type":        "boolean",
-					"title":       "Pure Passthrough (Anthropic Protocol)",
-					"description": "Forward Anthropic-protocol requests verbatim without any body transformation. Only authentication headers are replaced. Usage is captured via SSE scanning.",
+					"title":       "Anthropic 协议原样转发 (pure_passthrough)",
+					"description": "仅适用于 Anthropic 类型渠道的 /v1/messages。开启后不做请求体转换，只替换上游鉴权头并扫描响应 usage。不要用于 PPIO/Novita OpenAI-compatible 渠道。",
+				},
+				model.ChannelConfigRouteKind: map[string]any{
+					"type":        "string",
+					"title":       "路由模式",
+					"description": "选择该渠道参与路由的方式。",
+					"enum": []string{
+						string(model.RouteKindPurePassthrough),
+						string(model.RouteKindAdaptedPassthrough),
+						string(model.RouteKindConversion),
+					},
 				},
 			},
 		},

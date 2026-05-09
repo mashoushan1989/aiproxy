@@ -56,6 +56,16 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 			"支持图像生成（Seedream 系列、即梦、Qwen-Image 等）、视频生成（Wan、Kling、Minimax、Vidu 等）\n" +
 			"请求体使用 PPIO 原生格式（非 OpenAI 格式）\n" +
 			"文档：https://ppio.com/docs/models",
+		PassthroughCapability: model.ChannelCapability{
+			PurePassthrough:    true,
+			Protocol:           model.PassthroughProtocolNativePPIOV3,
+			AuthScheme:         model.PassthroughAuthSchemeBearer,
+			PathPolicy:         model.PassthroughPathPolicyPreserve,
+			ModelMappingPolicy: model.PassthroughModelMappingPathModel,
+			EndpointFamilies: []model.EndpointFamily{
+				model.EndpointFamilyNativeV3,
+			},
+		},
 		ConfigSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

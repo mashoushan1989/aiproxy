@@ -106,6 +106,44 @@ func TestAdaptorConvertRequest_PurePassthroughNoMappingPreservesBody(t *testing.
 	}
 }
 
+func TestAdaptorConvertRequest_RouteKindPurePassthroughPreservesBody(t *testing.T) {
+	a := &anthropic.Adaptor{}
+	channel := &model.Channel{
+		Type: model.ChannelTypeAnthropic,
+		Configs: model.ChannelConfigs{
+			model.ChannelConfigRouteKind: string(model.RouteKindPurePassthrough),
+		},
+	}
+	m := meta.NewMeta(channel, mode.Anthropic, "same-model", model.ModelConfig{})
+	m.ActualModel = "same-model"
+
+	body := []byte(`{"model":"same-model","messages":[{"role":"user","content":"hello"}]}`)
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"http://localhost/v1/messages",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := a.ConvertRequest(m, nil, req)
+	if err != nil {
+		t.Fatalf("ConvertRequest returned error: %v", err)
+	}
+
+	gotBody, err := io.ReadAll(result.Body)
+	if err != nil {
+		t.Fatalf("failed to read converted body: %v", err)
+	}
+
+	if string(gotBody) != string(body) {
+		t.Fatalf("route_kind=pure_passthrough should preserve body:\nwant: %s\ngot:  %s", body, gotBody)
+	}
+}
+
 func TestAdaptorConvertRequest_NonPureAnthropicRewritesBody(t *testing.T) {
 	a := &anthropic.Adaptor{}
 	channel := &model.Channel{

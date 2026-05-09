@@ -2,10 +2,16 @@ package passthrough
 
 import (
 	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/model"
+	"github.com/labring/aiproxy/core/relay/meta"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
 
 // ─── flushCopy tests ─────────────────────────────────────────────────────────
@@ -369,6 +375,179 @@ func TestMergeAnthropicSSEUsage_TailWinsWhenComplete(t *testing.T) {
 	// TotalTokens is always recomputed from merged fields.
 	if int64(got.TotalTokens) != 32 { // 20 + 12
 		t.Errorf("TotalTokens: want 32, got %d", got.TotalTokens)
+	}
+}
+
+// ─── passthrough contract tests ──────────────────────────────────────────────
+
+func newPassthroughTestMeta() *meta.Meta {
+	return meta.NewMeta(&model.Channel{
+		ID:      7,
+		Type:    model.ChannelTypePPIO,
+		BaseURL: "https://upstream.example/v3/openai",
+		Key:     "upstream-key",
+	}, mode.ChatCompletions, "gpt-test", model.ModelConfig{
+		Model: "gpt-test",
+		Type:  mode.ChatCompletions,
+	})
+}
+
+func TestConvertRequest_PreservesBodyAndAllowedHeaders(t *testing.T) {
+	body := `{"model":"gpt-test","messages":[{"role":"user","content":"hello"}],"temperature":0.2}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("User-Agent", "sdk/1.2.3")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Length", "82")
+	req.Header.Set("X-Stainless-Arch", "arm64")
+	req.Header.Set("Anthropic-Version", "2023-06-01")
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("Cookie", "session=leak")
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	req.Header.Set("Connection", "keep-alive")
+
+	result, err := (&Adaptor{}).ConvertRequest(newPassthroughTestMeta(), nil, req)
+	if err != nil {
+		t.Fatalf("ConvertRequest returned error: %v", err)
+	}
+
+	gotBody, err := io.ReadAll(result.Body)
+	if err != nil {
+		t.Fatalf("read converted body: %v", err)
+	}
+
+	if string(gotBody) != body {
+		t.Fatalf("body was modified:\nwant %s\ngot  %s", body, string(gotBody))
+	}
+
+	for _, header := range []string{
+		"User-Agent",
+		"Content-Type",
+		"Content-Length",
+		"X-Stainless-Arch",
+		"Anthropic-Version",
+	} {
+		if got, want := result.Header.Get(header), req.Header.Get(header); got != want {
+			t.Errorf("header %s: want %q, got %q", header, want, got)
+		}
+	}
+
+	for _, header := range []string{
+		"Authorization",
+		"Cookie",
+		"X-Forwarded-For",
+		"Connection",
+	} {
+		if got := result.Header.Get(header); got != "" {
+			t.Errorf("header %s should be stripped, got %q", header, got)
+		}
+	}
+}
+
+func TestSetupRequestHeader_ReplacesAuthorizationOnly(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer client-key")
+	req.Header.Set("X-Stainless-Arch", "arm64")
+
+	err := (&Adaptor{}).SetupRequestHeader(newPassthroughTestMeta(), nil, nil, req)
+	if err != nil {
+		t.Fatalf("SetupRequestHeader returned error: %v", err)
+	}
+
+	if got := req.Header.Get("Authorization"); got != "Bearer upstream-key" {
+		t.Fatalf("Authorization: want upstream key, got %q", got)
+	}
+
+	if got := req.Header.Get("X-Stainless-Arch"); got != "arm64" {
+		t.Fatalf("X-Stainless-Arch was modified: %q", got)
+	}
+}
+
+func TestDoResponse_ForwardsSuccessStatusHeadersAndBodyVerbatim(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	body := "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n"
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":      []string{"text/event-stream"},
+			"X-Request-Id":      []string{"req_123"},
+			"X-Custom-Header":   []string{"kept"},
+			"Transfer-Encoding": []string{"chunked"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+
+	result, relayErr := (&Adaptor{}).DoResponse(newPassthroughTestMeta(), nil, c, resp)
+	if relayErr != nil {
+		t.Fatalf("DoResponse returned error: %v", relayErr)
+	}
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status: want 200, got %d", recorder.Code)
+	}
+
+	if got := recorder.Body.String(); got != body {
+		t.Fatalf("body was modified:\nwant %q\ngot  %q", body, got)
+	}
+
+	if got := recorder.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Errorf("Content-Type: want text/event-stream, got %q", got)
+	}
+
+	if got := recorder.Header().Get("X-Custom-Header"); got != "kept" {
+		t.Errorf("X-Custom-Header: want kept, got %q", got)
+	}
+
+	if got := recorder.Header().Get("Transfer-Encoding"); got != "" {
+		t.Errorf("Transfer-Encoding should not be forwarded, got %q", got)
+	}
+
+	if result.UpstreamID != "req_123" {
+		t.Errorf("UpstreamID: want req_123, got %q", result.UpstreamID)
+	}
+}
+
+func TestDoResponse_ReturnsPassthroughErrorWithoutWritingOnUpstreamError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	body := `{"error":{"message":"upstream rejected","type":"invalid_request_error"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"X-Request-Id": []string{"req_err"},
+		},
+		Body: io.NopCloser(strings.NewReader(body)),
+	}
+
+	_, relayErr := (&Adaptor{}).DoResponse(newPassthroughTestMeta(), nil, c, resp)
+	if relayErr == nil {
+		t.Fatal("expected passthrough error, got nil")
+	}
+
+	if relayErr.StatusCode() != http.StatusBadRequest {
+		t.Fatalf("status: want 400, got %d", relayErr.StatusCode())
+	}
+
+	errBody, err := relayErr.MarshalJSON()
+	if err != nil {
+		t.Fatalf("marshal passthrough error: %v", err)
+	}
+
+	if string(errBody) != body {
+		t.Fatalf("error body was modified:\nwant %s\ngot  %s", body, string(errBody))
+	}
+
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("DoResponse wrote to client before retry decision: %q", recorder.Body.String())
 	}
 }
 

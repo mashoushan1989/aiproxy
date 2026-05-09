@@ -25,6 +25,13 @@ func pureUnknownPassthroughChannel(id int, channelType model.ChannelType) *model
 	return channel
 }
 
+func pureRouteKindUnknownPassthroughChannel(id int, channelType model.ChannelType) *model.Channel {
+	channel := unknownPassthroughChannel(id, channelType)
+	channel.Configs[model.ChannelConfigRouteKind] = string(model.RouteKindPurePassthrough)
+
+	return channel
+}
+
 func TestHasUnknownPassthroughForModeDomestic(t *testing.T) {
 	mc := &model.ModelCaches{
 		PassthroughChannelsBySet: map[string][]*model.Channel{
@@ -48,6 +55,20 @@ func TestHasUnknownPassthroughForModeDomestic(t *testing.T) {
 	}
 }
 
+func TestHasUnknownPassthroughForModeAllowsPureRouteKind(t *testing.T) {
+	mc := &model.ModelCaches{
+		PassthroughChannelsBySet: map[string][]*model.Channel{
+			model.ChannelDefaultSet: {
+				pureRouteKindUnknownPassthroughChannel(1, model.ChannelTypeAnthropic),
+			},
+		},
+	}
+
+	if !hasUnknownPassthroughForMode(mc, []string{model.ChannelDefaultSet}, mode.Anthropic) {
+		t.Fatal("route_kind=pure_passthrough should allow unknown anthropic models")
+	}
+}
+
 func TestHasUnknownPassthroughForModeDomesticOpenAIResponses(t *testing.T) {
 	mc := &model.ModelCaches{
 		PassthroughChannelsBySet: map[string][]*model.Channel{
@@ -59,6 +80,20 @@ func TestHasUnknownPassthroughForModeDomesticOpenAIResponses(t *testing.T) {
 
 	if !hasUnknownPassthroughForMode(mc, []string{model.ChannelDefaultSet}, mode.Responses) {
 		t.Fatal("ppio openai passthrough should allow unknown responses models")
+	}
+}
+
+func TestHasUnknownPassthroughForModeAllowsAdaptedWebSearch(t *testing.T) {
+	mc := &model.ModelCaches{
+		PassthroughChannelsBySet: map[string][]*model.Channel{
+			model.ChannelDefaultSet: {
+				unknownPassthroughChannel(3, model.ChannelTypePPIO),
+			},
+		},
+	}
+
+	if !hasUnknownPassthroughForMode(mc, []string{model.ChannelDefaultSet}, mode.WebSearch) {
+		t.Fatal("ppio adapted web-search passthrough should allow unknown web-search models")
 	}
 }
 
@@ -107,5 +142,23 @@ func TestHasUnknownPassthroughForModeOverseasOpenAIResponses(t *testing.T) {
 
 	if !hasUnknownPassthroughForMode(mc, []string{"overseas"}, mode.Responses) {
 		t.Fatal("novita openai passthrough should allow unknown responses models")
+	}
+}
+
+func TestHasUnknownPassthroughForModeRejectsProtocolMismatch(t *testing.T) {
+	mc := &model.ModelCaches{
+		PassthroughChannelsBySet: map[string][]*model.Channel{
+			model.ChannelDefaultSet: {
+				unknownPassthroughChannel(1, model.ChannelTypePPIO),
+			},
+		},
+	}
+
+	if hasUnknownPassthroughForMode(mc, []string{model.ChannelDefaultSet}, mode.Anthropic) {
+		t.Fatal("openai-compatible PPIO passthrough must not claim Anthropic pure passthrough")
+	}
+
+	if hasUnknownPassthroughForMode(mc, []string{model.ChannelDefaultSet}, mode.Gemini) {
+		t.Fatal("openai-compatible PPIO passthrough must not claim Gemini pure passthrough")
 	}
 }

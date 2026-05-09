@@ -153,6 +153,12 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 	return adaptor.Metadata{
 		Readme: "https://ai.google.dev\nGoogle Gemini native API\nSupports chat, embeddings, native Gemini requests, and image generation",
 		Models: ModelList,
+		PassthroughCapability: model.ChannelCapability{
+			Protocol:           model.PassthroughProtocolGemini,
+			AuthScheme:         model.PassthroughAuthSchemeXGoogAPIKey,
+			PathPolicy:         model.PassthroughPathPolicyPreserve,
+			ModelMappingPolicy: model.PassthroughModelMappingPathModel,
+		},
 		ConfigSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

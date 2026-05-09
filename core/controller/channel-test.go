@@ -683,6 +683,13 @@ func createTempChannel(req *TestChannelRequest) *model.Channel {
 	}
 }
 
+func validatePreviewConfigs(channelType int, configs map[string]any) error {
+	return adaptors.ValidateChannelConfigs(
+		model.ChannelType(channelType),
+		model.ChannelConfigs(configs),
+	)
+}
+
 // TestChannelPreview godoc
 //
 //	@Summary		Test channel preview (single model)
@@ -697,6 +704,15 @@ func createTempChannel(req *TestChannelRequest) *model.Channel {
 func TestChannelPreview(c *gin.Context) {
 	var req TestSingleModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, middleware.APIResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+
+		return
+	}
+
+	if err := validatePreviewConfigs(req.Type, req.Configs); err != nil {
 		c.JSON(http.StatusOK, middleware.APIResponse{
 			Success: false,
 			Message: err.Error(),
@@ -759,6 +775,15 @@ func TestChannelPreview(c *gin.Context) {
 func TestChannelPreviewAll(c *gin.Context) {
 	var req TestChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusOK, middleware.APIResponse{
+			Success: false,
+			Message: err.Error(),
+		})
+
+		return
+	}
+
+	if err := validatePreviewConfigs(req.Type, req.Configs); err != nil {
 		c.JSON(http.StatusOK, middleware.APIResponse{
 			Success: false,
 			Message: err.Error(),

@@ -34,12 +34,23 @@ export interface ChannelConfigSchema {
     default?: unknown
 }
 
+export interface ChannelPassthroughCapability {
+    purePassthrough?: boolean
+    protocol?: string
+    authScheme?: string
+    pathPolicy?: string
+    modelMappingPolicy?: string
+    endpointFamilies?: string[]
+    adaptedEndpointFamilies?: string[]
+}
+
 export interface ChannelTypeMeta {
     name: string
     keyHelp: string
     defaultBaseUrl: string
     readme?: string
     configSchema?: ChannelConfigSchema
+    passthroughCapability?: ChannelPassthroughCapability
 }
 
 export type ChannelTypeMetaMap = Record<string, ChannelTypeMeta>

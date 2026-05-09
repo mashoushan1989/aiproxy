@@ -30,6 +30,7 @@ import { FlaskConical, Loader2, Info, Power, PowerOff } from 'lucide-react'
 import { ChannelTestDialog } from './ChannelTestDialog'
 import { DefaultModelsDialog } from './DefaultModelsDialog'
 import { ChannelConfigEditor } from './ChannelConfigEditor'
+import { PassthroughCapabilitySummary } from './PassthroughCapabilitySummary'
 import { useRuntimeMetrics } from '@/feature/monitor/runtime-hooks'
 import { Switch } from '@/components/ui/switch'
 
@@ -825,6 +826,20 @@ export function ChannelForm({
                                     )
                                 }}
                             />
+
+                            {watchedType > 0 && (
+                                <FormField
+                                    control={form.control}
+                                    name="configs_text"
+                                    render={({ field }) => (
+                                        <PassthroughCapabilitySummary
+                                            capability={typeMetas[String(watchedType)]?.passthroughCapability}
+                                            configsText={field.value || ''}
+                                            onConfigsTextChange={field.onChange}
+                                        />
+                                    )}
+                                />
+                            )}
 
                             <FormField
                                 control={form.control}
