@@ -67,6 +67,9 @@ func SyncSnapshot(ctx context.Context, db *gorm.DB, snapshot Snapshot) error {
 	if err := validateOrgUnitGraph(snapshot.OrgUnits); err != nil {
 		return err
 	}
+	if err := validateUserOrgReferences(snapshot); err != nil {
+		return err
+	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := syncOrgUnits(tx, snapshot); err != nil {
@@ -152,6 +155,32 @@ func validateOrgUnitGraph(records []OrgUnitRecord) error {
 		}
 		if err := detectOrgUnitCycle(rec.ExternalID, recordsByExternalID, map[string]struct{}{}); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+func validateUserOrgReferences(snapshot Snapshot) error {
+	orgUnitsByExternalID := make(map[string]struct{}, len(snapshot.OrgUnits))
+	for _, rec := range snapshot.OrgUnits {
+		orgUnitsByExternalID[rec.ExternalID] = struct{}{}
+	}
+
+	for _, rec := range snapshot.Users {
+		if rec.PrimaryOrgUnitExternalID != "" {
+			if _, ok := orgUnitsByExternalID[rec.PrimaryOrgUnitExternalID]; !ok {
+				return fmt.Errorf("user %s references missing primary org unit %s", rec.ExternalOpenID, rec.PrimaryOrgUnitExternalID)
+			}
+		}
+
+		for _, externalID := range rec.OrgUnitExternalIDs {
+			if externalID == "" {
+				continue
+			}
+			if _, ok := orgUnitsByExternalID[externalID]; !ok {
+				return fmt.Errorf("user %s references missing org unit %s", rec.ExternalOpenID, externalID)
+			}
 		}
 	}
 

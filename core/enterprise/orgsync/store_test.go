@@ -141,6 +141,40 @@ func TestSyncSnapshotRejectsInvalidOrgGraphs(t *testing.T) {
 	require.ErrorContains(t, err, "cycle detected")
 }
 
+func TestSyncSnapshotRejectsMissingUserOrgReferences(t *testing.T) {
+	db := setupOrgSyncDB(t)
+
+	err := SyncSnapshot(context.Background(), db, Snapshot{
+		Provider: enterprisemodels.ProviderFeishu,
+		OrgUnits: []OrgUnitRecord{
+			{ExternalID: "root", Name: "Root"},
+		},
+		Users: []UserRecord{
+			{
+				ExternalOpenID:           "ou_missing_primary",
+				Name:                     "Missing Primary",
+				PrimaryOrgUnitExternalID: "missing",
+			},
+		},
+	})
+	require.ErrorContains(t, err, "references missing primary org unit missing")
+
+	err = SyncSnapshot(context.Background(), db, Snapshot{
+		Provider: enterprisemodels.ProviderFeishu,
+		OrgUnits: []OrgUnitRecord{
+			{ExternalID: "root", Name: "Root"},
+		},
+		Users: []UserRecord{
+			{
+				ExternalOpenID:     "ou_missing_member",
+				Name:               "Missing Member",
+				OrgUnitExternalIDs: []string{"root", "missing"},
+			},
+		},
+	})
+	require.ErrorContains(t, err, "references missing org unit missing")
+}
+
 func TestSyncSnapshotUsesBoundedStableIDs(t *testing.T) {
 	db := setupOrgSyncDB(t)
 

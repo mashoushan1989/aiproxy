@@ -3,11 +3,13 @@
 package feishu
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/labring/aiproxy/core/common"
 	"github.com/labring/aiproxy/core/enterprise/models"
+	"github.com/labring/aiproxy/core/enterprise/orgsync"
 	"github.com/labring/aiproxy/core/model"
 )
 
@@ -30,7 +32,14 @@ func setupFeishuSyncTestDB(t *testing.T) {
 		common.UsingSQLite = prevUsingSQLite
 	})
 
-	if err := testDB.AutoMigrate(&models.FeishuUser{}, &model.Group{}); err != nil {
+	if err := testDB.AutoMigrate(
+		&models.FeishuUser{},
+		&models.FeishuDepartment{},
+		&models.OrgUnit{},
+		&models.EnterpriseUser{},
+		&models.UserOrgUnit{},
+		&model.Group{},
+	); err != nil {
 		t.Fatalf("migrate test tables: %v", err)
 	}
 }
@@ -207,5 +216,89 @@ func TestUpsertOAuthFeishuUserRejectsInactiveUsers(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("deleted user rows = %d, want 1", count)
+	}
+}
+
+func TestMirrorFeishuGovernanceWritesProviderNeutralRows(t *testing.T) {
+	setupFeishuSyncTestDB(t)
+
+	if err := model.DB.Create(&models.FeishuDepartment{
+		DepartmentID:     "dept-root",
+		OpenDepartmentID: "od-root",
+		Name:             "Root",
+		Status:           1,
+	}).Error; err != nil {
+		t.Fatalf("create root department: %v", err)
+	}
+	if err := model.DB.Create(&models.FeishuDepartment{
+		DepartmentID:     "dept-child",
+		OpenDepartmentID: "od-child",
+		ParentID:         "dept-root",
+		Name:             "Child",
+		Status:           1,
+	}).Error; err != nil {
+		t.Fatalf("create child department: %v", err)
+	}
+	if err := model.DB.Create(&models.FeishuUser{
+		OpenID:        "ou_mirror",
+		UnionID:       "on_mirror",
+		UserID:        "user_mirror",
+		TenantID:      "tenant-a",
+		Name:          "Mirror User",
+		Email:         "mirror@example.com",
+		DepartmentID:  "dept-child",
+		DepartmentIDs: `["dept-child","dept-root"]`,
+		GroupID:       "feishu_ou_mirror",
+		Status:        1,
+	}).Error; err != nil {
+		t.Fatalf("create feishu user: %v", err)
+	}
+	if err := ensureFeishuPersonalGroup(model.DB, "feishu_ou_mirror", "ou_mirror", "Mirror User", "dept-child"); err != nil {
+		t.Fatalf("ensure group: %v", err)
+	}
+
+	if err := mirrorFeishuGovernance(context.Background(), model.DB); err != nil {
+		t.Fatalf("mirror governance: %v", err)
+	}
+
+	userID := orgsync.EnterpriseUserID(models.WorkspaceDefaultID, models.ProviderFeishu, "ou_mirror")
+	childID := orgsync.OrgUnitID(models.WorkspaceDefaultID, models.ProviderFeishu, "dept-child")
+
+	var enterpriseUser models.EnterpriseUser
+	if err := model.DB.First(&enterpriseUser, "id = ?", userID).Error; err != nil {
+		t.Fatalf("load enterprise user: %v", err)
+	}
+	if enterpriseUser.DefaultGroupID != "feishu_ou_mirror" {
+		t.Fatalf("default_group_id = %q, want feishu_ou_mirror", enterpriseUser.DefaultGroupID)
+	}
+	if enterpriseUser.PrimaryOrgUnitID != childID {
+		t.Fatalf("primary_org_unit_id = %q, want %q", enterpriseUser.PrimaryOrgUnitID, childID)
+	}
+
+	var membership models.UserOrgUnit
+	if err := model.DB.First(&membership, "user_id = ? AND org_unit_id = ?", userID, childID).Error; err != nil {
+		t.Fatalf("load user membership: %v", err)
+	}
+	if !membership.IsPrimary {
+		t.Fatal("child membership is not primary")
+	}
+
+	var feishuUser models.FeishuUser
+	if err := model.DB.First(&feishuUser, "open_id = ?", "ou_mirror").Error; err != nil {
+		t.Fatalf("load feishu user: %v", err)
+	}
+	if feishuUser.EnterpriseUserID != userID {
+		t.Fatalf("enterprise_user_id = %q, want %q", feishuUser.EnterpriseUserID, userID)
+	}
+
+	var group model.Group
+	if err := model.DB.First(&group, "id = ?", "feishu_ou_mirror").Error; err != nil {
+		t.Fatalf("load group: %v", err)
+	}
+	if group.OwnerUserID != userID {
+		t.Fatalf("owner_user_id = %q, want %q", group.OwnerUserID, userID)
+	}
+	if group.OrgUnitID != childID {
+		t.Fatalf("org_unit_id = %q, want %q", group.OrgUnitID, childID)
 	}
 }

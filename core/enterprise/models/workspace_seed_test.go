@@ -32,7 +32,15 @@ func TestEnsureDefaultWorkspaceCreatesDefault(t *testing.T) {
 func TestBackfillWorkspaceGovernanceSetsPersonalFeishuGroups(t *testing.T) {
 	db, err := model.OpenSQLite(t.TempDir() + "/workspace_backfill.db")
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&Workspace{}, &model.Group{}, &FeishuUser{}))
+	require.NoError(t, db.AutoMigrate(
+		&Workspace{},
+		&OrgUnit{},
+		&EnterpriseUser{},
+		&UserOrgUnit{},
+		&FeishuDepartment{},
+		&model.Group{},
+		&FeishuUser{},
+	))
 
 	require.NoError(t, db.Create(&model.Group{ID: "feishu_ou_1", Name: "User One"}).Error)
 	require.NoError(t, db.Create(&model.Group{ID: "manual-team", Name: "Manual Team"}).Error)
@@ -82,4 +90,76 @@ func TestBackfillWorkspaceGovernanceSetsPersonalFeishuGroups(t *testing.T) {
 	require.NoError(t, db.First(&existingUser, "open_id = ?", "ou_2").Error)
 	require.Equal(t, "sandbox", existingUser.WorkspaceID)
 	require.Equal(t, "external_b", existingUser.ExternalTenantID)
+}
+
+func TestBackfillWorkspaceGovernanceMirrorsExistingFeishuData(t *testing.T) {
+	db, err := model.OpenSQLite(t.TempDir() + "/workspace_mirror_backfill.db")
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&Workspace{},
+		&OrgUnit{},
+		&EnterpriseUser{},
+		&UserOrgUnit{},
+		&FeishuDepartment{},
+		&FeishuUser{},
+		&model.Group{},
+	))
+
+	require.NoError(t, db.Create(&FeishuDepartment{
+		DepartmentID:     "dept-root",
+		OpenDepartmentID: "od-root",
+		Name:             "Root",
+		Status:           EntityStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&FeishuDepartment{
+		DepartmentID:     "dept-child",
+		OpenDepartmentID: "od-child",
+		ParentID:         "dept-root",
+		Name:             "Child",
+		Status:           EntityStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Group{ID: "feishu_ou_backfill", Name: "Backfill User"}).Error)
+	require.NoError(t, db.Create(&FeishuUser{
+		OpenID:        "ou_backfill",
+		UnionID:       "on_backfill",
+		UserID:        "user_backfill",
+		TenantID:      "tenant-a",
+		Name:          "Backfill User",
+		Email:         "backfill@example.com",
+		DepartmentID:  "dept-child",
+		DepartmentIDs: `["dept-child","dept-root","missing"]`,
+		GroupID:       "feishu_ou_backfill",
+		Status:        EntityStatusEnabled,
+	}).Error)
+
+	require.NoError(t, EnsureDefaultWorkspace(db))
+	require.NoError(t, BackfillWorkspaceGovernance(db))
+
+	userID := "eu:default:feishu:ou_backfill"
+	childID := "ou:default:feishu:dept-child"
+
+	var unit OrgUnit
+	require.NoError(t, db.First(&unit, "id = ?", childID).Error)
+	require.Equal(t, "dept-child", unit.ExternalID)
+	require.Equal(t, "ou:default:feishu:dept-root", unit.ParentID)
+	require.Equal(t, "/ou:default:feishu:dept-root/ou:default:feishu:dept-child", unit.Path)
+	require.Equal(t, 1, unit.Depth)
+
+	var enterpriseUser EnterpriseUser
+	require.NoError(t, db.First(&enterpriseUser, "id = ?", userID).Error)
+	require.Equal(t, "feishu_ou_backfill", enterpriseUser.DefaultGroupID)
+	require.Equal(t, childID, enterpriseUser.PrimaryOrgUnitID)
+
+	var memberships []UserOrgUnit
+	require.NoError(t, db.Where("user_id = ?", userID).Find(&memberships).Error)
+	require.Len(t, memberships, 2)
+
+	var feishuUser FeishuUser
+	require.NoError(t, db.First(&feishuUser, "open_id = ?", "ou_backfill").Error)
+	require.Equal(t, userID, feishuUser.EnterpriseUserID)
+
+	var group model.Group
+	require.NoError(t, db.First(&group, "id = ?", "feishu_ou_backfill").Error)
+	require.Equal(t, userID, group.OwnerUserID)
+	require.Equal(t, childID, group.OrgUnitID)
 }
