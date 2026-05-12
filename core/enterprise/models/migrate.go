@@ -49,6 +49,7 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
 		&Workspace{},
 		&WorkspaceProviderBinding{},
+		&IdentitySource{},
 		&OrgUnit{},
 		&EnterpriseUser{},
 		&UserOrgUnit{},

@@ -125,6 +125,54 @@ export interface DisabledFeishuUser extends FeishuUser {
     department_path?: DepartmentPath
 }
 
+export type IdentitySourceProvider = 'feishu' | 'wecom' | 'dingtalk'
+export type IdentitySourceCheckLevel = 'passed' | 'warning' | 'failed'
+
+export interface IdentitySourceConfig {
+    id: number
+    workspace_id: string
+    provider: IdentitySourceProvider
+    external_org_id: string
+    app_id: string
+    app_secret_mask: string
+    redirect_uri: string
+    frontend_url: string
+    sync_enabled: boolean
+    enabled: boolean
+    effective_source: 'db' | 'env'
+    db_configured: boolean
+    has_secret: boolean
+    last_check_status: string
+    last_check_result?: string
+}
+
+export interface IdentitySourceUpdatePayload {
+    external_org_id: string
+    app_id: string
+    app_secret?: string
+    redirect_uri: string
+    frontend_url: string
+    sync_enabled: boolean
+    enabled: boolean
+}
+
+export interface IdentitySourceCheckItem {
+    code: string
+    level: IdentitySourceCheckLevel
+    message: string
+    detail?: string
+}
+
+export interface IdentitySourceCheckResult {
+    provider: IdentitySourceProvider
+    source: 'db' | 'env'
+    status: IdentitySourceCheckLevel
+    tenant_key?: string
+    tenant_name?: string
+    checks: IdentitySourceCheckItem[]
+    effective_note?: string
+}
+
 // Feishu Department types
 export interface FeishuDepartment {
     id: number
@@ -900,6 +948,21 @@ export const enterpriseApi = {
 
     reactivateUser: (open_id: string): Promise<{ tokens_restored: number }> => {
         return post(`/enterprise/feishu/users/${open_id}/reactivate`, {})
+    },
+
+    getIdentitySource: (provider: IdentitySourceProvider): Promise<IdentitySourceConfig> => {
+        return get<IdentitySourceConfig>(`/enterprise/identity-sources/${provider}`)
+    },
+
+    updateIdentitySource: (
+        provider: IdentitySourceProvider,
+        payload: IdentitySourceUpdatePayload
+    ): Promise<IdentitySourceConfig> => {
+        return put<IdentitySourceConfig>(`/enterprise/identity-sources/${provider}`, payload)
+    },
+
+    checkIdentitySource: (provider: IdentitySourceProvider): Promise<IdentitySourceCheckResult> => {
+        return post<IdentitySourceCheckResult>(`/enterprise/identity-sources/${provider}/check`, {})
     },
 
     // Department Quota APIs

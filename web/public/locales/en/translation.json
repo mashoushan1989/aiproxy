@@ -926,6 +926,59 @@
       "noDisabledUsers": "No disabled users",
       "searchDisabledPlaceholder": "Search disabled users"
     },
+    "identitySource": {
+      "tab": "Identity Source",
+      "title": "Identity Source Configuration",
+      "description": "Configure enterprise identity provider apps for private-cloud login and organization sync diagnostics",
+      "providers": {
+        "feishu": "Feishu",
+        "wecom": "WeCom",
+        "dingtalk": "DingTalk"
+      },
+      "activeProvider": "Available now",
+      "comingSoon": "Reserved for future organization sync",
+      "configurable": "Configurable",
+      "reserved": "Reserved",
+      "feishuConfig": "Feishu App",
+      "sources": {
+        "env": "Environment",
+        "db": "Managed Config"
+      },
+      "secretConfigured": "Secret configured",
+      "externalOrgId": "External Org ID",
+      "externalOrgIdPlaceholder": "Feishu Tenant Key",
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretPlaceholder": "Enter app secret",
+      "keepSecretPlaceholder": "Leave empty to keep current secret",
+      "redirectUri": "OAuth Redirect URI",
+      "frontendUrl": "Frontend URL",
+      "enabled": "Enable managed config",
+      "enabledDesc": "When enabled, this config is available for diagnostics and later runtime cutover",
+      "syncEnabled": "Enable organization sync",
+      "syncEnabledDesc": "Marks this identity source as ready for scheduled organization sync",
+      "save": "Save",
+      "saveSuccess": "Identity source configuration saved",
+      "saveFailed": "Failed to save identity source configuration",
+      "runCheck": "Run Self-check",
+      "checkResult": "Self-check Result",
+      "checkFailed": "Self-check failed",
+      "status": {
+        "passed": "Passed",
+        "warning": "Warning",
+        "failed": "Failed"
+      },
+      "checks": {
+        "source": "Effective source",
+        "credentials": "App credentials",
+        "redirect_uri": "Redirect URI",
+        "frontend_url": "Frontend URL",
+        "tenant": "Tenant API",
+        "tenant_match": "Tenant match",
+        "departments": "Department read",
+        "users": "User read"
+      }
+    },
     "quota": {
       "title": "Quota Policy Management",
       "description": "Configure progressive quota policies that auto-adjust RPM/TPM limits based on usage",

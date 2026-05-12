@@ -1033,6 +1033,59 @@
       "noDisabledUsers": "暂无已禁用的用户",
       "searchDisabledPlaceholder": "搜索已禁用用户"
     },
+    "identitySource": {
+      "tab": "身份源",
+      "title": "身份源配置",
+      "description": "配置私有化环境的企业身份源应用，用于登录与组织同步自检",
+      "providers": {
+        "feishu": "飞书",
+        "wecom": "企业微信",
+        "dingtalk": "钉钉"
+      },
+      "activeProvider": "当前可配置",
+      "comingSoon": "预留后续组织同步接入",
+      "configurable": "可配置",
+      "reserved": "预留",
+      "feishuConfig": "飞书应用",
+      "sources": {
+        "env": "环境变量",
+        "db": "管理端配置"
+      },
+      "secretConfigured": "密钥已配置",
+      "externalOrgId": "外部组织 ID",
+      "externalOrgIdPlaceholder": "飞书 Tenant Key",
+      "appId": "App ID",
+      "appSecret": "App Secret",
+      "appSecretPlaceholder": "请输入应用密钥",
+      "keepSecretPlaceholder": "留空则保留当前密钥",
+      "redirectUri": "OAuth 回调地址",
+      "frontendUrl": "前端访问地址",
+      "enabled": "启用管理端配置",
+      "enabledDesc": "启用后用于自检，并为后续运行时切换做准备",
+      "syncEnabled": "启用组织同步",
+      "syncEnabledDesc": "标记该身份源可用于定时组织架构同步",
+      "save": "保存",
+      "saveSuccess": "身份源配置已保存",
+      "saveFailed": "身份源配置保存失败",
+      "runCheck": "运行自检",
+      "checkResult": "自检结果",
+      "checkFailed": "自检失败",
+      "status": {
+        "passed": "通过",
+        "warning": "警告",
+        "failed": "失败"
+      },
+      "checks": {
+        "source": "生效来源",
+        "credentials": "应用凭证",
+        "redirect_uri": "回调地址",
+        "frontend_url": "前端地址",
+        "tenant": "租户 API",
+        "tenant_match": "租户匹配",
+        "departments": "部门读取",
+        "users": "用户读取"
+      }
+    },
     "notifications": {
       "title": "通知与告警",
       "description": "配置额度用量通知模板，查看告警发送历史",

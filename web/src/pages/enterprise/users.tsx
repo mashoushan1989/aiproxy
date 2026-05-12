@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect, Fragment } from "react"
 import { useTranslation } from "react-i18next"
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query"
-import { Users, RefreshCcw, Shield, Pencil, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle, Loader2, Clock, Settings2, Filter, KeyRound, History, ChevronDown, ChevronRight, UserX, RotateCcw } from "lucide-react"
+import { Users, RefreshCcw, Shield, Pencil, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, CheckCircle, Loader2, Clock, Settings2, Filter, KeyRound, History, ChevronDown, ChevronRight, UserX, RotateCcw, Building2, TestTube2, XCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
-import { enterpriseApi, type FeishuUser, type FeishuSyncHistory, type DisabledFeishuUser } from "@/api/enterprise"
+import { enterpriseApi, type FeishuUser, type FeishuSyncHistory, type DisabledFeishuUser, type IdentitySourceProvider, type IdentitySourceUpdatePayload, type IdentitySourceCheckResult } from "@/api/enterprise"
 import { formatMs } from "@/lib/enterprise"
 import { toast } from "sonner"
 import { ColumnDef, useReactTable, getCoreRowModel, VisibilityState } from "@tanstack/react-table"
@@ -33,6 +33,12 @@ const roleColors = {
     analyst: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     viewer: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
 }
+
+const identityProviders: Array<{ key: IdentitySourceProvider; labelKey: string; enabled: boolean }> = [
+    { key: "feishu", labelKey: "enterprise.identitySource.providers.feishu", enabled: true },
+    { key: "wecom", labelKey: "enterprise.identitySource.providers.wecom", enabled: false },
+    { key: "dingtalk", labelKey: "enterprise.identitySource.providers.dingtalk", enabled: false },
+]
 
 // Column definitions for visibility toggle
 const COLUMN_KEYS: Array<{ key: string; labelKey: string; alwaysVisible?: boolean; defaultVisible?: boolean }> = [
@@ -426,6 +432,228 @@ function PermissionConfigTab() {
                     </div>
                 </CardContent>
             </Card>
+        </div>
+    )
+}
+
+function IdentitySourceConfigTab() {
+    const { t } = useTranslation()
+    const queryClient = useQueryClient()
+    const [secretInput, setSecretInput] = useState("")
+    const [checkResult, setCheckResult] = useState<IdentitySourceCheckResult | null>(null)
+    const [form, setForm] = useState<IdentitySourceUpdatePayload>({
+        external_org_id: "",
+        app_id: "",
+        app_secret: "",
+        redirect_uri: "",
+        frontend_url: "",
+        sync_enabled: false,
+        enabled: false,
+    })
+
+    const { data, isLoading } = useQuery({
+        queryKey: ["identity-source", "feishu"],
+        queryFn: () => enterpriseApi.getIdentitySource("feishu"),
+        staleTime: 30000,
+        refetchOnWindowFocus: false,
+    })
+
+    useEffect(() => {
+        if (!data) return
+        setForm({
+            external_org_id: data.external_org_id || "",
+            app_id: data.app_id || "",
+            app_secret: "",
+            redirect_uri: data.redirect_uri || "",
+            frontend_url: data.frontend_url || "",
+            sync_enabled: data.sync_enabled,
+            enabled: data.enabled,
+        })
+        setSecretInput("")
+    }, [data])
+
+    const saveMutation = useMutation({
+        mutationFn: () => enterpriseApi.updateIdentitySource("feishu", { ...form, app_secret: secretInput }),
+        onSuccess: (result) => {
+            queryClient.setQueryData(["identity-source", "feishu"], result)
+            setSecretInput("")
+            toast.success(t("enterprise.identitySource.saveSuccess"))
+        },
+        onError: (error: Error) => {
+            toast.error(error.message || t("enterprise.identitySource.saveFailed"))
+        },
+    })
+
+    const checkMutation = useMutation({
+        mutationFn: () => enterpriseApi.checkIdentitySource("feishu"),
+        onSuccess: (result) => {
+            setCheckResult(result)
+            queryClient.invalidateQueries({ queryKey: ["identity-source", "feishu"] })
+        },
+        onError: (error: Error) => {
+            toast.error(error.message || t("enterprise.identitySource.checkFailed"))
+        },
+    })
+
+    const updateField = <K extends keyof IdentitySourceUpdatePayload>(key: K, value: IdentitySourceUpdatePayload[K]) => {
+        setForm(prev => ({ ...prev, [key]: value }))
+    }
+
+    const statusIcon = (level: string) => {
+        if (level === "passed") return <CheckCircle className="w-4 h-4 text-emerald-600" />
+        if (level === "warning") return <AlertTriangle className="w-4 h-4 text-amber-600" />
+        return <XCircle className="w-4 h-4 text-red-600" />
+    }
+
+    if (isLoading) {
+        return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+    }
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-[#6A6DE6]" />
+                    {t("enterprise.identitySource.title")}
+                </h2>
+                <p className="text-muted-foreground mt-1">{t("enterprise.identitySource.description")}</p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+                {identityProviders.map(provider => (
+                    <Card key={provider.key} className={provider.enabled ? "border-[#6A6DE6]/40" : "opacity-70"}>
+                        <CardContent className="pt-5">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="font-medium">{t(provider.labelKey as never)}</div>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                        {provider.enabled ? t("enterprise.identitySource.activeProvider") : t("enterprise.identitySource.comingSoon")}
+                                    </div>
+                                </div>
+                                <Badge variant={provider.enabled ? "default" : "secondary"}>
+                                    {provider.enabled ? t("enterprise.identitySource.configurable") : t("enterprise.identitySource.reserved")}
+                                </Badge>
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle className="text-base">{t("enterprise.identitySource.feishuConfig")}</CardTitle>
+                        <div className="flex items-center gap-2">
+                            <Badge variant={data?.effective_source === "db" ? "default" : "secondary"}>
+                                {t(`enterprise.identitySource.sources.${data?.effective_source || "env"}` as never)}
+                            </Badge>
+                            {data?.has_secret && <Badge variant="outline">{t("enterprise.identitySource.secretConfigured")}</Badge>}
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label>{t("enterprise.identitySource.externalOrgId")}</Label>
+                            <Input
+                                value={form.external_org_id}
+                                onChange={(event) => updateField("external_org_id", event.target.value)}
+                                placeholder={t("enterprise.identitySource.externalOrgIdPlaceholder")}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>{t("enterprise.identitySource.appId")}</Label>
+                            <Input
+                                value={form.app_id}
+                                onChange={(event) => updateField("app_id", event.target.value)}
+                                placeholder="cli_xxxxxxxxx"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>{t("enterprise.identitySource.appSecret")}</Label>
+                            <Input
+                                type="password"
+                                value={secretInput}
+                                onChange={(event) => setSecretInput(event.target.value)}
+                                placeholder={data?.has_secret ? t("enterprise.identitySource.keepSecretPlaceholder") : t("enterprise.identitySource.appSecretPlaceholder")}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>{t("enterprise.identitySource.redirectUri")}</Label>
+                            <Input
+                                value={form.redirect_uri}
+                                onChange={(event) => updateField("redirect_uri", event.target.value)}
+                                placeholder="https://example.com/api/enterprise/auth/feishu/callback"
+                            />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                            <Label>{t("enterprise.identitySource.frontendUrl")}</Label>
+                            <Input
+                                value={form.frontend_url}
+                                onChange={(event) => updateField("frontend_url", event.target.value)}
+                                placeholder="https://example.com"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="flex items-center justify-between rounded-md border p-3">
+                            <div>
+                                <div className="font-medium">{t("enterprise.identitySource.enabled")}</div>
+                                <div className="text-xs text-muted-foreground">{t("enterprise.identitySource.enabledDesc")}</div>
+                            </div>
+                            <Switch checked={form.enabled} onCheckedChange={(checked) => updateField("enabled", checked)} />
+                        </div>
+                        <div className="flex items-center justify-between rounded-md border p-3">
+                            <div>
+                                <div className="font-medium">{t("enterprise.identitySource.syncEnabled")}</div>
+                                <div className="text-xs text-muted-foreground">{t("enterprise.identitySource.syncEnabledDesc")}</div>
+                            </div>
+                            <Switch checked={form.sync_enabled} onCheckedChange={(checked) => updateField("sync_enabled", checked)} />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => checkMutation.mutate()} disabled={checkMutation.isPending}>
+                            <TestTube2 className={`w-4 h-4 mr-2 ${checkMutation.isPending ? "animate-pulse" : ""}`} />
+                            {t("enterprise.identitySource.runCheck")}
+                        </Button>
+                        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                            {saveMutation.isPending ? t("common.saving") : t("enterprise.identitySource.save")}
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {checkResult && (
+                <Card>
+                    <CardHeader>
+                        <div className="flex items-center justify-between gap-3">
+                            <CardTitle className="text-base">{t("enterprise.identitySource.checkResult")}</CardTitle>
+                            <Badge variant={checkResult.status === "failed" ? "destructive" : checkResult.status === "warning" ? "secondary" : "default"}>
+                                {t(`enterprise.identitySource.status.${checkResult.status}` as never)}
+                            </Badge>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                        {(checkResult.tenant_key || checkResult.tenant_name) && (
+                            <div className="text-sm text-muted-foreground">
+                                {checkResult.tenant_name || "-"} · {checkResult.tenant_key || "-"}
+                            </div>
+                        )}
+                        {checkResult.checks.map(item => (
+                            <div key={item.code} className="flex items-start gap-3 rounded-md border p-3">
+                                {statusIcon(item.level)}
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-medium">{t(`enterprise.identitySource.checks.${item.code}` as never)}</div>
+                                    <div className="text-sm text-muted-foreground">{item.message}</div>
+                                    {item.detail && <div className="mt-1 break-all text-xs text-muted-foreground">{item.detail}</div>}
+                                </div>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
         </div>
     )
 }
@@ -1195,6 +1423,7 @@ export default function UsersPage() {
                     <TabsList>
                         <TabsTrigger value="users">{t("enterprise.users.userList")}</TabsTrigger>
                         <TabsTrigger value="disabled">{t("enterprise.users.disabledUsers")}</TabsTrigger>
+                        <TabsTrigger value="identity-source">{t("enterprise.identitySource.tab")}</TabsTrigger>
                         <TabsTrigger value="permissions">{t("enterprise.permissions.title")}</TabsTrigger>
                     </TabsList>
                     <TabsContent value="users" className="space-y-6">
@@ -1202,6 +1431,9 @@ export default function UsersPage() {
                     </TabsContent>
                     <TabsContent value="disabled">
                         <DisabledUsersTab />
+                    </TabsContent>
+                    <TabsContent value="identity-source">
+                        <IdentitySourceConfigTab />
                     </TabsContent>
                     <TabsContent value="permissions">
                         <PermissionConfigTab />
