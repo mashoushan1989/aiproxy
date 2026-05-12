@@ -71,6 +71,14 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 		return err
 	}
 
+	if err := EnsureDefaultWorkspace(db); err != nil {
+		return err
+	}
+
+	if err := BackfillWorkspaceGovernance(db); err != nil {
+		return err
+	}
+
 	// Migrate unique indexes to partial indexes (soft-delete compatible)
 	migratePartialUniqueIndexes(db)
 
