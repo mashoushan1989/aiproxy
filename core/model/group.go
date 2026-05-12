@@ -22,6 +22,15 @@ const (
 	GroupStatusInternal = 3
 )
 
+const (
+	GroupTypePersonal   = "personal"
+	GroupTypeDepartment = "department"
+	GroupTypeProject    = "project"
+	GroupTypeApp        = "app"
+	GroupTypeCostCenter = "cost_center"
+	GroupTypeDemo       = "demo"
+)
+
 type Group struct {
 	CreatedAt              time.Time               `json:"created_at"`
 	ID                     string                  `json:"id"                       gorm:"size:64;primaryKey"`
@@ -36,6 +45,11 @@ type Group struct {
 	UsedAmount             float64                 `json:"used_amount"              gorm:"index"`
 	RequestCount           int                     `json:"request_count"            gorm:"index"`
 	AvailableSets          []string                `json:"available_sets,omitempty" gorm:"serializer:fastjson;type:text"`
+	WorkspaceID            string                  `json:"workspace_id,omitempty"   gorm:"size:64;index"`
+	Type                   string                  `json:"type,omitempty"           gorm:"size:32;index"`
+	OwnerUserID            string                  `json:"owner_user_id,omitempty"  gorm:"size:96;index"`
+	OwnerOpenID            string                  `json:"owner_open_id,omitempty"  gorm:"size:128;index"`
+	OrgUnitID              string                  `json:"org_unit_id,omitempty"    gorm:"size:96;index"`
 
 	BalanceAlertEnabled   bool    `gorm:"default:false" json:"balance_alert_enabled"`
 	BalanceAlertThreshold float64 `gorm:"default:0"     json:"balance_alert_threshold"`
@@ -195,6 +209,11 @@ type UpdateGroupRequest struct {
 	RPMRatio              *float64  `json:"rpm_ratio,omitempty"`
 	TPMRatio              *float64  `json:"tpm_ratio,omitempty"`
 	AvailableSets         *[]string `json:"available_sets,omitempty"`
+	WorkspaceID           *string   `json:"workspace_id,omitempty"`
+	Type                  *string   `json:"type,omitempty"`
+	OwnerUserID           *string   `json:"owner_user_id,omitempty"`
+	OwnerOpenID           *string   `json:"owner_open_id,omitempty"`
+	OrgUnitID             *string   `json:"org_unit_id,omitempty"`
 	BalanceAlertEnabled   *bool     `json:"balance_alert_enabled"`
 	BalanceAlertThreshold *float64  `json:"balance_alert_threshold"`
 }
@@ -240,6 +259,36 @@ func UpdateGroup(id string, update UpdateGroupRequest) (group *Group, err error)
 		group.AvailableSets = *update.AvailableSets
 
 		selects = append(selects, "available_sets")
+	}
+
+	if update.WorkspaceID != nil {
+		group.WorkspaceID = *update.WorkspaceID
+
+		selects = append(selects, "workspace_id")
+	}
+
+	if update.Type != nil {
+		group.Type = *update.Type
+
+		selects = append(selects, "type")
+	}
+
+	if update.OwnerUserID != nil {
+		group.OwnerUserID = *update.OwnerUserID
+
+		selects = append(selects, "owner_user_id")
+	}
+
+	if update.OwnerOpenID != nil {
+		group.OwnerOpenID = *update.OwnerOpenID
+
+		selects = append(selects, "owner_open_id")
+	}
+
+	if update.OrgUnitID != nil {
+		group.OrgUnitID = *update.OrgUnitID
+
+		selects = append(selects, "org_unit_id")
 	}
 
 	if update.BalanceAlertEnabled != nil {

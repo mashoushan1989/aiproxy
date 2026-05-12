@@ -47,6 +47,11 @@ func (NovitaSyncHistory) TableName() string {
 // EnterpriseAutoMigrate runs database migrations for all enterprise tables.
 func EnterpriseAutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(
+		&Workspace{},
+		&WorkspaceProviderBinding{},
+		&OrgUnit{},
+		&EnterpriseUser{},
+		&UserOrgUnit{},
 		&FeishuUser{},
 		&FeishuDepartment{},
 		&QuotaPolicy{},
@@ -95,7 +100,7 @@ type channelModels struct {
 // model name appears in some active channel.Models are claimed by the
 // corresponding sync. Manually-added alias rows (e.g. claude-opus-4-6 used
 // only via channel.model_mapping) and virtual rows (web-search/tavily) keep
-// synced_from='' — sync MUST NOT touch them per the SyncedFrom contract.
+// synced_from=” — sync MUST NOT touch them per the SyncedFrom contract.
 //
 // Idempotent: only touches rows where synced_from is empty/NULL.
 //
