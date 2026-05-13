@@ -68,6 +68,7 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 		&RolePermission{},
 		&QuotaAlertHistory{},
 		&ReportTemplate{},
+		&AnalyticsAuditEvent{},
 	); err != nil {
 		return err
 	}
