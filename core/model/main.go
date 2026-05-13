@@ -141,6 +141,9 @@ func InitDB() error {
 // enterpriseMigrator is set by enterprise build tag to add enterprise table migrations.
 var enterpriseMigrator func(*gorm.DB) error
 
+// enterpriseLogMigrator is set by enterprise build tag to add enterprise log DB migrations.
+var enterpriseLogMigrator func(*gorm.DB) error
+
 func migrateDB() error {
 	err := DB.AutoMigrate(
 		&Channel{},
@@ -243,6 +246,12 @@ func migrateLogDB(batchSize int) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	if enterpriseLogMigrator != nil {
+		if err := enterpriseLogMigrator(LogDB); err != nil {
+			return err
+		}
 	}
 
 	go func() {

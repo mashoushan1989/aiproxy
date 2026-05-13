@@ -262,18 +262,20 @@ func GetChannel(c *gin.Context) {
 
 // AddChannelRequest represents the request body for adding a channel
 type AddChannelRequest struct {
-	ModelMapping  map[string]string    `json:"model_mapping"`
-	Configs       model.ChannelConfigs `json:"configs"`
-	Name          string               `json:"name"`
-	Key           string               `json:"key"`
-	BaseURL       string               `json:"base_url"`
-	ProxyURL      string               `json:"proxy_url"`
-	Models        []string             `json:"models"`
-	Type          model.ChannelType    `json:"type"`
-	Priority      int32                `json:"priority"`
-	Status        int                  `json:"status"`
-	Sets          []string             `json:"sets"`
-	SkipTLSVerify bool                 `json:"skip_tls_verify"`
+	ModelMapping            map[string]string    `json:"model_mapping"`
+	Configs                 model.ChannelConfigs `json:"configs"`
+	Name                    string               `json:"name"`
+	Key                     string               `json:"key"`
+	BaseURL                 string               `json:"base_url"`
+	ProxyURL                string               `json:"proxy_url"`
+	Models                  []string             `json:"models"`
+	Type                    model.ChannelType    `json:"type"`
+	Priority                int32                `json:"priority"`
+	Status                  int                  `json:"status"`
+	Sets                    []string             `json:"sets"`
+	SkipTLSVerify           bool                 `json:"skip_tls_verify"`
+	EnabledAutoBalanceCheck bool                 `json:"enabled_auto_balance_check"`
+	BalanceThreshold        float64              `json:"balance_threshold"`
 }
 
 func (r *AddChannelRequest) ToChannel() (*model.Channel, error) {
@@ -308,19 +310,25 @@ func (r *AddChannelRequest) ToChannel() (*model.Channel, error) {
 		}
 	}
 
+	if err := adaptors.ValidateChannelConfigs(r.Type, r.Configs); err != nil {
+		return nil, err
+	}
+
 	return &model.Channel{
-		Type:          r.Type,
-		Name:          r.Name,
-		Key:           r.Key,
-		BaseURL:       r.BaseURL,
-		ProxyURL:      r.ProxyURL,
-		Models:        slices.Clone(r.Models),
-		ModelMapping:  maps.Clone(r.ModelMapping),
-		Priority:      r.Priority,
-		Status:        r.Status,
-		Configs:       r.Configs,
-		Sets:          slices.Clone(r.Sets),
-		SkipTLSVerify: r.SkipTLSVerify,
+		Type:                    r.Type,
+		Name:                    r.Name,
+		Key:                     r.Key,
+		BaseURL:                 r.BaseURL,
+		ProxyURL:                r.ProxyURL,
+		Models:                  slices.Clone(r.Models),
+		ModelMapping:            maps.Clone(r.ModelMapping),
+		Priority:                r.Priority,
+		Status:                  r.Status,
+		Configs:                 r.Configs,
+		Sets:                    slices.Clone(r.Sets),
+		SkipTLSVerify:           r.SkipTLSVerify,
+		EnabledAutoBalanceCheck: r.EnabledAutoBalanceCheck,
+		BalanceThreshold:        r.BalanceThreshold,
 	}, nil
 }
 

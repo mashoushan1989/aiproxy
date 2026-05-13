@@ -57,11 +57,12 @@ func GetAdaptor(channelType model.ChannelType) (adaptor.Adaptor, bool) {
 }
 
 type AdaptorMeta struct {
-	Name           string         `json:"name"`
-	KeyHelp        string         `json:"keyHelp"`
-	DefaultBaseURL string         `json:"defaultBaseUrl"`
-	Readme         string         `json:"readme"`
-	ConfigSchema   map[string]any `json:"configSchema,omitempty"`
+	Name                  string                   `json:"name"`
+	KeyHelp               string                   `json:"keyHelp"`
+	DefaultBaseURL        string                   `json:"defaultBaseUrl"`
+	Readme                string                   `json:"readme"`
+	ConfigSchema          map[string]any           `json:"configSchema,omitempty"`
+	PassthroughCapability *model.ChannelCapability `json:"passthroughCapability,omitempty"`
 }
 
 var ChannelMetas = map[model.ChannelType]AdaptorMeta{}
@@ -77,6 +78,11 @@ func init() {
 			DefaultBaseURL: a.DefaultBaseURL(),
 			Readme:         adaptorMeta.Readme,
 			ConfigSchema:   adaptorMeta.ConfigSchema,
+		}
+		if adaptorMeta.PassthroughCapability.Protocol != "" ||
+			adaptorMeta.PassthroughCapability.PurePassthrough {
+			capability := adaptorMeta.PassthroughCapability
+			meta.PassthroughCapability = &capability
 		}
 
 		ChannelMetas[i] = meta

@@ -3,6 +3,7 @@
 package feishu
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -155,42 +156,23 @@ func HandleCallback(c *gin.Context) {
 			Update("name", enterpriseName)
 	}
 
-	// Upsert FeishuUser record
 	groupID := fmt.Sprintf("feishu_%s", userInfo.OpenID)
-	feishuUser := enterprisemodels.FeishuUser{
-		OpenID:   userInfo.OpenID,
-		UnionID:  userInfo.UnionID,
-		UserID:   userInfo.UserID,
-		TenantID: userInfo.TenantID,
-		Name:     userInfo.Name,
-		Email:    userInfo.Email,
-		Avatar:   userInfo.Avatar,
-		GroupID:  groupID,
-		Status:   1,
-	}
 
-	result := model.DB.
-		Where("open_id = ?", userInfo.OpenID).
-		Assign(enterprisemodels.FeishuUser{
-			UnionID:  userInfo.UnionID,
-			UserID:   userInfo.UserID,
-			TenantID: userInfo.TenantID,
-			Name:     userInfo.Name,
-			Email:    userInfo.Email,
-			Avatar:   userInfo.Avatar,
-			GroupID:  groupID,
-			Status:   1,
-		}).
-		FirstOrCreate(&feishuUser)
-	if result.Error != nil {
-		log.Errorf("feishu upsert user failed: %v", result.Error)
+	feishuUser, err := upsertOAuthFeishuUser(model.DB, userInfo, groupID)
+	if err != nil {
+		if errors.Is(err, errFeishuUserInactive) {
+			middleware.ErrorResponse(c, http.StatusForbidden, "forbidden: enterprise user is disabled")
+			return
+		}
+
+		log.Errorf("feishu upsert user failed: %v", err)
 		middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to save user record")
 
 		return
 	}
 
 	// Create Group if not exists, update name on conflict
-	if err := model.CreateOrUpdateGroupName(groupID, userInfo.Name); err != nil {
+	if err := ensureFeishuPersonalGroup(model.DB, groupID, userInfo.OpenID, userInfo.Name, ""); err != nil {
 		log.Errorf("feishu create group failed: %v", err)
 		middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to create group")
 
@@ -363,4 +345,64 @@ func recordRejectedTenant(info rejectedTenantInfo) {
 	if err := model.DB.Model(&existing).Updates(updates).Error; err != nil {
 		log.Errorf("failed to update rejected tenant login: %v", err)
 	}
+}
+
+var errFeishuUserInactive = errors.New("feishu user is inactive")
+
+func upsertOAuthFeishuUser(
+	db *gorm.DB,
+	userInfo *UserInfo,
+	groupID string,
+) (*enterprisemodels.FeishuUser, error) {
+	var existing enterprisemodels.FeishuUser
+	err := db.Unscoped().Where("open_id = ?", userInfo.OpenID).First(&existing).Error
+	if err == nil {
+		if existing.DeletedAt.Valid || existing.Status != 1 {
+			return nil, errFeishuUserInactive
+		}
+
+		updates := enterprisemodels.FeishuUser{
+			UnionID:          userInfo.UnionID,
+			UserID:           userInfo.UserID,
+			TenantID:         userInfo.TenantID,
+			WorkspaceID:      enterprisemodels.WorkspaceDefaultID,
+			ExternalTenantID: userInfo.TenantID,
+			Name:             userInfo.Name,
+			Email:            userInfo.Email,
+			Avatar:           userInfo.Avatar,
+			GroupID:          groupID,
+			Status:           1,
+		}
+		if result := db.Model(&existing).Updates(updates); result.Error != nil {
+			return nil, result.Error
+		}
+
+		if err := db.First(&existing, existing.ID).Error; err != nil {
+			return nil, err
+		}
+
+		return &existing, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	feishuUser := enterprisemodels.FeishuUser{
+		OpenID:           userInfo.OpenID,
+		UnionID:          userInfo.UnionID,
+		UserID:           userInfo.UserID,
+		TenantID:         userInfo.TenantID,
+		WorkspaceID:      enterprisemodels.WorkspaceDefaultID,
+		ExternalTenantID: userInfo.TenantID,
+		Name:             userInfo.Name,
+		Email:            userInfo.Email,
+		Avatar:           userInfo.Avatar,
+		GroupID:          groupID,
+		Status:           1,
+	}
+	if result := db.Create(&feishuUser); result.Error != nil {
+		return nil, result.Error
+	}
+
+	return &feishuUser, nil
 }

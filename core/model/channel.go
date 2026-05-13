@@ -117,6 +117,31 @@ func (c ChannelConfigs) GetBool(key string) bool {
 	return b
 }
 
+func (c ChannelConfigs) GetString(key string) string {
+	v := c[key]
+	s, _ := v.(string)
+
+	return s
+}
+
+func (c ChannelConfigs) GetStringSlice(key string) []string {
+	v := c[key]
+	switch values := v.(type) {
+	case []string:
+		return values
+	case []any:
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if s, ok := value.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 // SetOrInit writes override's value to key when override is non-nil (explicit
 // caller choice). When override is nil it only initialises the key to def if
 // the key is not already present, preserving any existing value.

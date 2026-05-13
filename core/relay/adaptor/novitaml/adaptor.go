@@ -54,6 +54,16 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 			"支持图像生成、视频生成、音频生成等多模态模型\n" +
 			"请求体使用 Novita 原生格式（非 OpenAI 格式）\n" +
 			"文档：https://novita.ai/docs",
+		PassthroughCapability: model.ChannelCapability{
+			PurePassthrough:    true,
+			Protocol:           model.PassthroughProtocolNativeNovitaV3,
+			AuthScheme:         model.PassthroughAuthSchemeBearer,
+			PathPolicy:         model.PassthroughPathPolicyPreserve,
+			ModelMappingPolicy: model.PassthroughModelMappingPathModel,
+			EndpointFamilies: []model.EndpointFamily{
+				model.EndpointFamilyNativeV3,
+			},
+		},
 		ConfigSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

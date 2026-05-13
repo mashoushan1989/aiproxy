@@ -255,7 +255,7 @@ func compareModelConfigs(local *model.ModelConfig, remote *PPIOModel) []string {
 
 	// Compare config fields (normalize both through map[string]any to ensure
 	// consistent key ordering — sonic sorts map[string]any keys but not map[ModelConfigKey]any)
-	if !configMapsEqual(local.Config, buildConfigFromPPIOModel(remote)) {
+	if !configMapsEqual(synccommon.ComparableModelConfig(local.Config), buildConfigFromPPIOModel(remote)) {
 		changes = append(changes, "config updated")
 	}
 
@@ -323,7 +323,7 @@ func compareModelConfigsV2(local *model.ModelConfig, remote *PPIOModelV2) []stri
 
 	// Compare config fields (normalize both through map[string]any to ensure
 	// consistent key ordering — sonic sorts map[string]any keys but not map[ModelConfigKey]any)
-	if !configMapsEqual(local.Config, buildConfigFromPPIOModelV2(remote)) {
+	if !configMapsEqual(synccommon.ComparableModelConfig(local.Config), buildConfigFromPPIOModelV2(remote)) {
 		changes = append(changes, "config updated")
 	}
 

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Shield, Plus, Pencil, Trash2, AlertCircle, Check, X, Users, UserX } from "lucide-react"
+import { Shield, Plus, Pencil, Trash2, AlertCircle, Check, X, Users, UserX, Building2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -245,10 +245,13 @@ export default function AccessControlPage() {
                                 <thead>
                                     <tr className="border-b text-muted-foreground text-sm">
                                         <th className="text-left py-3 px-4 font-medium">
-                                            {t("enterprise.accessControl.tenantId")}
+                                            {t("enterprise.accessControl.identityProvider")}
                                         </th>
                                         <th className="text-left py-3 px-4 font-medium">
-                                            {t("enterprise.accessControl.tenantName")}
+                                            {t("enterprise.accessControl.externalOrgId")}
+                                        </th>
+                                        <th className="text-left py-3 px-4 font-medium">
+                                            {t("enterprise.accessControl.orgName")}
                                         </th>
                                         <th className="text-center py-3 px-4 font-medium">
                                             {t("enterprise.accessControl.successfulMembers")}
@@ -267,6 +270,12 @@ export default function AccessControlPage() {
                                 <tbody>
                                     {tenants.map((tenant) => (
                                         <tr key={tenant.tenant_id} className="border-b last:border-0 hover:bg-muted/50">
+                                            <td className="py-3 px-4">
+                                                <Badge variant="outline" className="gap-1.5">
+                                                    <Building2 className="w-3.5 h-3.5" />
+                                                    {t("enterprise.accessControl.providerFeishu")}
+                                                </Badge>
+                                            </td>
                                             <td className="py-3 px-4">
                                                 <code className="text-sm bg-muted px-2 py-1 rounded">
                                                     {tenant.tenant_id}
@@ -394,7 +403,19 @@ export default function AccessControlPage() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label htmlFor="tenant-id">{t("enterprise.accessControl.tenantId")} *</Label>
+                            <Label>{t("enterprise.accessControl.identityProvider")}</Label>
+                            <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                                <Badge variant="outline" className="gap-1.5">
+                                    <Building2 className="w-3.5 h-3.5" />
+                                    {t("enterprise.accessControl.providerFeishu")}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                    {t("enterprise.accessControl.providerFutureHint")}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="tenant-id">{t("enterprise.accessControl.externalOrgId")} *</Label>
                             <Input
                                 id="tenant-id"
                                 placeholder={t("enterprise.accessControl.tenantIdPlaceholder")}
@@ -406,7 +427,7 @@ export default function AccessControlPage() {
                             </p>
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="tenant-name">{t("enterprise.accessControl.tenantName")}</Label>
+                            <Label htmlFor="tenant-name">{t("enterprise.accessControl.orgName")}</Label>
                             <Input
                                 id="tenant-name"
                                 placeholder={t("enterprise.accessControl.tenantNamePlaceholder")}
@@ -435,7 +456,7 @@ export default function AccessControlPage() {
                     </DialogHeader>
                     <div className="space-y-4 py-4">
                         <div className="space-y-2">
-                            <Label>{t("enterprise.accessControl.tenantName")}</Label>
+                            <Label>{t("enterprise.accessControl.orgName")}</Label>
                             <Input
                                 value={editTenant.name}
                                 onChange={(e) => setEditTenant({ ...editTenant, name: e.target.value })}

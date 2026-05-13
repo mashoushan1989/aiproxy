@@ -31,7 +31,7 @@ func TestFilterChannels_PrefersNativeAnthropicChannels(t *testing.T) {
 	}
 }
 
-func TestFilterChannels_FallsBackToConvertibleChannelWhenNoNativeExists(t *testing.T) {
+func TestFilterChannels_RejectsPassthroughPseudoConversionWhenNoNativeExists(t *testing.T) {
 	channels := []*model.Channel{
 		{
 			ID:     1,
@@ -41,12 +41,8 @@ func TestFilterChannels_FallsBackToConvertibleChannelWhenNoNativeExists(t *testi
 	}
 
 	got := filterChannels(channels, mode.Anthropic, map[int64]float64{}, 0)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 fallback channel, got %d", len(got))
-	}
-
-	if got[0].ID != 1 {
-		t.Fatalf("expected fallback PPIO channel, got channel id %d", got[0].ID)
+	if len(got) != 0 {
+		t.Fatalf("expected no pseudo-conversion fallback channel, got %d", len(got))
 	}
 }
 

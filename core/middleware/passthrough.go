@@ -30,13 +30,15 @@ func supportsUnknownPassthroughMode(channel *model.Channel, m mode.Mode) bool {
 		return false
 	}
 
-	if !model.IsPassthroughChannel(channel.Type) &&
-		!channel.Configs.GetBool(model.ChannelConfigPurePassthrough) {
+	a, ok := adaptors.GetAdaptor(channel.Type)
+	if !ok || !a.SupportMode(m) {
 		return false
 	}
 
-	a, ok := adaptors.GetAdaptor(channel.Type)
-	if !ok || !a.SupportMode(m) {
+	shape := model.InferRequestShape("", "", m)
+	capability := a.Metadata().PassthroughCapability
+	if !model.SupportsPurePassthrough(channel, shape, capability) &&
+		!model.SupportsAdaptedPassthrough(channel, shape, capability) {
 		return false
 	}
 

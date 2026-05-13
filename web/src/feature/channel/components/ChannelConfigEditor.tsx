@@ -50,6 +50,19 @@ const stringifyConfig = (config: ConfigObject) => {
     return JSON.stringify(config, null, 2)
 }
 
+const HIDDEN_VISUAL_CONFIG_KEYS = new Set([
+    'passthrough_endpoint_families',
+    'adapted_passthrough_endpoint_families',
+    'path_base_map',
+    'passthrough_protocol',
+    'passthrough_auth_scheme',
+    'passthrough_path_policy',
+    'passthrough_model_mapping_policy',
+    'route_kind',
+])
+
+const isHiddenVisualConfigKey = (key: string) => HIDDEN_VISUAL_CONFIG_KEYS.has(key)
+
 const getAtPath = (obj: unknown, path: string[]): unknown => {
     let current = obj
     for (const segment of path) {
@@ -366,6 +379,8 @@ export function ChannelConfigEditor({
     const schema = meta?.configSchema
     const hasVisualConfigs = schema?.type === 'object' && !!schema.properties && Object.keys(schema.properties).length > 0
     const parsedState = useMemo(() => parseConfigText(value || ''), [value])
+    const schemaEntries = Object.entries(schema?.properties || {})
+    const visibleEntries = schemaEntries.filter(([key]) => !isHiddenVisualConfigKey(key))
 
     const updateConfig = (path: string[], nextValue: unknown) => {
         if (parsedState.error) {
@@ -413,15 +428,23 @@ export function ChannelConfigEditor({
                                 : t('channel.dialog.configsJsonInvalid')}
                         </div>
                     ) : (
-                        Object.entries(schema.properties || {}).map(([key, childSchema]) => (
-                            <SchemaField
-                                key={key}
-                                schema={childSchema}
-                                path={[key]}
-                                rootValue={parsedState.parsed}
-                                onValueChange={updateConfig}
-                            />
-                        ))
+                        <>
+                            {visibleEntries.map(([key, childSchema]) => (
+                                <SchemaField
+                                    key={key}
+                                    schema={childSchema}
+                                    path={[key]}
+                                    rootValue={parsedState.parsed}
+                                    onValueChange={updateConfig}
+                                />
+                            ))}
+
+                            {visibleEntries.length === 0 && (
+                                <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                                    {t('channel.dialog.configEditor.noCommonConfigs')}
+                                </div>
+                            )}
+                        </>
                     )}
 
                     {error && <p className="text-sm font-medium text-destructive">{error}</p>}

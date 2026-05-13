@@ -97,6 +97,23 @@ func ToModelConfigKeys(m map[string]any) map[model.ModelConfigKey]any {
 	return out
 }
 
+// ComparableModelConfig returns config suitable for provider metadata
+// comparisons. Local sync-control markers are intentionally excluded because
+// upstream provider APIs do not return them.
+func ComparableModelConfig(config map[model.ModelConfigKey]any) map[model.ModelConfigKey]any {
+	out := make(map[model.ModelConfigKey]any, len(config))
+
+	for k, v := range config {
+		if strings.HasPrefix(string(k), "sync_") {
+			continue
+		}
+
+		out[k] = v
+	}
+
+	return out
+}
+
 // IsLocalOnlyMode returns true for model types that are generated locally and
 // not sourced from the standard V1/V2 remote model list API. These must be
 // excluded from delete detection during sync diagnostics to avoid false positives.

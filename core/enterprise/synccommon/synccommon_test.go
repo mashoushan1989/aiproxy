@@ -2,7 +2,11 @@
 
 package synccommon
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/labring/aiproxy/core/model"
+)
 
 func TestInferToolChoice(t *testing.T) {
 	tests := []struct {
@@ -93,5 +97,31 @@ func TestAdjustTierBounds(t *testing.T) {
 					tt.min, tt.max, tt.prevMax, gotMin, gotMax, tt.wantMin, tt.wantMax)
 			}
 		})
+	}
+}
+
+func TestComparableModelConfigRemovesLocalSyncControlKeys(t *testing.T) {
+	input := map[model.ModelConfigKey]any{
+		model.ModelConfigMaxContextTokensKey: 128000,
+		model.ModelConfigKey("sync_price_locked"): true,
+		model.ModelConfigKey("sync_extra_marker"): "local",
+	}
+
+	got := ComparableModelConfig(input)
+
+	if _, ok := got[model.ModelConfigKey("sync_price_locked")]; ok {
+		t.Fatalf("ComparableModelConfig kept sync_price_locked")
+	}
+
+	if _, ok := got[model.ModelConfigKey("sync_extra_marker")]; ok {
+		t.Fatalf("ComparableModelConfig kept sync_extra_marker")
+	}
+
+	if got[model.ModelConfigMaxContextTokensKey] != 128000 {
+		t.Fatalf("ComparableModelConfig removed provider config key")
+	}
+
+	if _, ok := input[model.ModelConfigKey("sync_price_locked")]; !ok {
+		t.Fatalf("ComparableModelConfig mutated input")
 	}
 }

@@ -112,7 +112,7 @@ func (a *Adaptor) GetRequestURL(
 			rb = ResponsesBase(m.Channel.BaseURL)
 		}
 
-		return openai.ResponsesURL(rb, m.Mode, m.ResponseID)
+		return openai.ResponsesURL(rb, m.Mode, m.ResponseID, c.Request.URL.RawQuery)
 
 	case mode.WebSearch:
 		pbm := passthrough.GetPathBaseMap(m.ChannelConfigs)
@@ -153,6 +153,27 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 		KeyHelp: "PPIO API Key，从 https://ppinfra.com 控制台获取",
 		Readme:  "PPIO 派欧云 API\nOpenAI 兼容接口，支持 DeepSeek、Qwen、MiniMax、GLM 等模型\n文档：https://ppinfra.com/docs/model/llm.md",
 		Models:  ModelList,
+		PassthroughCapability: model.ChannelCapability{
+			PurePassthrough:    true,
+			Protocol:           model.PassthroughProtocolOpenAI,
+			AuthScheme:         model.PassthroughAuthSchemeBearer,
+			PathPolicy:         model.PassthroughPathPolicyStripV1,
+			ModelMappingPolicy: model.PassthroughModelMappingBodyModel,
+			EndpointFamilies: []model.EndpointFamily{
+				model.EndpointFamilyChat,
+				model.EndpointFamilyCompletions,
+				model.EndpointFamilyResponses,
+				model.EndpointFamilyEmbeddings,
+				model.EndpointFamilyImages,
+				model.EndpointFamilyAudio,
+				model.EndpointFamilyRerank,
+				model.EndpointFamilyModerations,
+				model.EndpointFamilyVideoJobs,
+			},
+			AdaptedEndpointFamilies: []model.EndpointFamily{
+				model.EndpointFamilyWebSearch,
+			},
+		},
 		ConfigSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -167,6 +188,32 @@ func (a *Adaptor) Metadata() adaptor.Metadata {
 					"type":        "boolean",
 					"title":       "透传未知模型 (allow_passthrough_unknown)",
 					"description": "开启后，此渠道可作为兜底路由，将未在模型配置中注册的模型直接转发到上游，计费为零。",
+				},
+				model.ChannelConfigRouteKind: map[string]any{
+					"type":        "string",
+					"title":       "路由模式",
+					"description": "选择该渠道参与路由的方式。PPIO 默认使用 pure_passthrough，WebSearch 自动归类为 adapted_passthrough。",
+					"enum": []string{
+						string(model.RouteKindPurePassthrough),
+						string(model.RouteKindAdaptedPassthrough),
+						string(model.RouteKindConversion),
+					},
+				},
+				model.ChannelConfigPassthroughEndpointFamilies: map[string]any{
+					"type":        "array",
+					"title":       "原协议透传端点族 (passthrough_endpoint_families)",
+					"description": "高级配置。声明该渠道支持原协议、原内容透传的端点族。PPIO 默认已包含 chat、responses、embeddings、images、audio、rerank、moderations、video_jobs。",
+					"items": map[string]any{
+						"type": "string",
+					},
+				},
+				model.ChannelConfigAdaptedPassthroughEndpointFamilies: map[string]any{
+					"type":        "array",
+					"title":       "适配透传端点族 (adapted_passthrough_endpoint_families)",
+					"description": "高级配置。声明会进行有限请求适配后转发的端点族。PPIO 默认将 web_search 归类为适配透传，因为上游不接受请求体中的 model 字段。",
+					"items": map[string]any{
+						"type": "string",
+					},
 				},
 			},
 		},

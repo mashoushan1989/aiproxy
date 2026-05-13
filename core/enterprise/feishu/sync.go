@@ -15,10 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/labring/aiproxy/core/common/notify"
 	"github.com/labring/aiproxy/core/controller/utils"
 	"github.com/labring/aiproxy/core/enterprise/models"
+	"github.com/labring/aiproxy/core/enterprise/orgsync"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
 )
@@ -82,22 +84,24 @@ func upsertFeishuUser(db *gorm.DB, f feishuUserFields) (reactivated bool, err er
 	case findErr == nil:
 		wasDeleted := existing.DeletedAt.Valid
 		updates := map[string]interface{}{
-			"deleted_at":       nil,
-			"union_id":         f.UnionID,
-			"user_id":          f.UserID,
-			"tenant_id":        f.TenantID,
-			"name":             f.Name,
-			"email":            f.Email,
-			"avatar":           f.Avatar,
-			"department_id":    f.DepartmentID,
-			"department_ids":   f.DepartmentIDs,
-			"level1_dept_id":   f.DeptPath.Level1ID,
-			"level1_dept_name": f.DeptPath.Level1Name,
-			"level2_dept_id":   f.DeptPath.Level2ID,
-			"level2_dept_name": f.DeptPath.Level2Name,
-			"dept_full_path":   f.DeptPath.FullPath,
-			"group_id":         f.GroupID,
-			"status":           1,
+			"deleted_at":         nil,
+			"union_id":           f.UnionID,
+			"user_id":            f.UserID,
+			"tenant_id":          f.TenantID,
+			"workspace_id":       models.WorkspaceDefaultID,
+			"external_tenant_id": f.TenantID,
+			"name":               f.Name,
+			"email":              f.Email,
+			"avatar":             f.Avatar,
+			"department_id":      f.DepartmentID,
+			"department_ids":     f.DepartmentIDs,
+			"level1_dept_id":     f.DeptPath.Level1ID,
+			"level1_dept_name":   f.DeptPath.Level1Name,
+			"level2_dept_id":     f.DeptPath.Level2ID,
+			"level2_dept_name":   f.DeptPath.Level2Name,
+			"dept_full_path":     f.DeptPath.FullPath,
+			"group_id":           f.GroupID,
+			"status":             1,
 		}
 		if result := db.Unscoped().Model(&existing).Updates(updates); result.Error != nil {
 			return false, result.Error
@@ -109,28 +113,59 @@ func upsertFeishuUser(db *gorm.DB, f feishuUserFields) (reactivated bool, err er
 	}
 
 	newUser := models.FeishuUser{
-		OpenID:         f.OpenID,
-		UnionID:        f.UnionID,
-		UserID:         f.UserID,
-		TenantID:       f.TenantID,
-		Name:           f.Name,
-		Email:          f.Email,
-		Avatar:         f.Avatar,
-		DepartmentID:   f.DepartmentID,
-		DepartmentIDs:  f.DepartmentIDs,
-		Level1DeptID:   f.DeptPath.Level1ID,
-		Level1DeptName: f.DeptPath.Level1Name,
-		Level2DeptID:   f.DeptPath.Level2ID,
-		Level2DeptName: f.DeptPath.Level2Name,
-		DeptFullPath:   f.DeptPath.FullPath,
-		GroupID:        f.GroupID,
-		Role:           models.RoleViewer,
-		Status:         1,
+		OpenID:           f.OpenID,
+		UnionID:          f.UnionID,
+		UserID:           f.UserID,
+		TenantID:         f.TenantID,
+		WorkspaceID:      models.WorkspaceDefaultID,
+		ExternalTenantID: f.TenantID,
+		Name:             f.Name,
+		Email:            f.Email,
+		Avatar:           f.Avatar,
+		DepartmentID:     f.DepartmentID,
+		DepartmentIDs:    f.DepartmentIDs,
+		Level1DeptID:     f.DeptPath.Level1ID,
+		Level1DeptName:   f.DeptPath.Level1Name,
+		Level2DeptID:     f.DeptPath.Level2ID,
+		Level2DeptName:   f.DeptPath.Level2Name,
+		DeptFullPath:     f.DeptPath.FullPath,
+		GroupID:          f.GroupID,
+		Role:             models.RoleViewer,
+		Status:           1,
 	}
 	if result := db.Create(&newUser); result.Error != nil {
 		return false, result.Error
 	}
 	return false, nil
+}
+
+func ensureFeishuPersonalGroup(db *gorm.DB, groupID, openID, name, departmentID string) error {
+	group := model.Group{
+		ID:          groupID,
+		Name:        name,
+		WorkspaceID: models.WorkspaceDefaultID,
+		Type:        model.GroupTypePersonal,
+		OwnerOpenID: openID,
+		Status:      model.GroupStatusEnabled,
+	}
+	if departmentID != "" {
+		group.OrgUnitID = orgsync.OrgUnitID(models.WorkspaceDefaultID, models.ProviderFeishu, departmentID)
+	}
+
+	updateColumns := []string{
+		"name",
+		"workspace_id",
+		"type",
+		"owner_open_id",
+	}
+	if departmentID != "" {
+		updateColumns = append(updateColumns, "org_unit_id")
+	}
+
+	return db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns(updateColumns),
+	}).Create(&group).Error
 }
 
 // GetSyncStatus returns the current sync status from in-memory cache.
@@ -392,7 +427,7 @@ func handleUserEvent(data json.RawMessage, tenantKey string) {
 	}
 
 	// Ensure the group exists, update name on conflict
-	if err := model.CreateOrUpdateGroupName(groupID, obj.Name); err != nil {
+	if err := ensureFeishuPersonalGroup(model.DB, groupID, obj.OpenID, obj.Name, deptID); err != nil {
 		log.Errorf("feishu webhook: failed to create group for user %s: %v", obj.OpenID, err)
 	}
 }
@@ -603,6 +638,10 @@ func SyncAll(db *gorm.DB) error {
 		deactivateDepartedUsers(db, stats)
 	}
 
+	if err := mirrorFeishuGovernance(ctx, db); err != nil {
+		log.Errorf("feishu sync: failed to mirror workspace governance: %v", err)
+	}
+
 	durationMs := time.Since(startTime).Milliseconds()
 	log.Infof("feishu sync: full organization sync completed in %dms", durationMs)
 
@@ -623,6 +662,167 @@ func SyncAll(db *gorm.DB) error {
 	updateSyncHistory(db, historyID, successHistory)
 
 	return nil
+}
+
+func mirrorFeishuGovernance(ctx context.Context, db *gorm.DB) error {
+	snapshot, err := buildFeishuGovernanceSnapshot(db)
+	if err != nil {
+		return err
+	}
+
+	if err := orgsync.SyncSnapshot(ctx, db, snapshot); err != nil {
+		return err
+	}
+
+	return backfillFeishuGovernanceIDs(db)
+}
+
+func buildFeishuGovernanceSnapshot(db *gorm.DB) (orgsync.Snapshot, error) {
+	snapshot := orgsync.Snapshot{
+		WorkspaceID: models.WorkspaceDefaultID,
+		Provider:    models.ProviderFeishu,
+	}
+
+	var departments []models.FeishuDepartment
+	if err := db.Where("status = ?", 1).Find(&departments).Error; err != nil {
+		return snapshot, err
+	}
+
+	departmentIDs := make(map[string]struct{}, len(departments))
+	for _, dept := range departments {
+		if dept.DepartmentID == "" {
+			continue
+		}
+		departmentIDs[dept.DepartmentID] = struct{}{}
+	}
+
+	for _, dept := range departments {
+		if dept.DepartmentID == "" {
+			continue
+		}
+		snapshot.OrgUnits = append(snapshot.OrgUnits, orgsync.OrgUnitRecord{
+			ExternalID:       dept.DepartmentID,
+			ExternalOpenID:   dept.OpenDepartmentID,
+			ParentExternalID: validFeishuParentDepartmentID(dept.ParentID, departmentIDs),
+			Name:             dept.Name,
+			Order:            dept.Order,
+			MemberCount:      dept.MemberCount,
+		})
+	}
+
+	var users []models.FeishuUser
+	if err := db.Where("status = ?", 1).Find(&users).Error; err != nil {
+		return snapshot, err
+	}
+
+	for _, user := range users {
+		if user.OpenID == "" {
+			continue
+		}
+
+		primaryDeptID := validFeishuUserDepartmentID(user.DepartmentID, departmentIDs)
+		orgUnitIDs := parseFeishuDepartmentIDs(user.DepartmentIDs, departmentIDs)
+		if primaryDeptID != "" {
+			orgUnitIDs = append([]string{primaryDeptID}, orgUnitIDs...)
+		}
+
+		snapshot.Users = append(snapshot.Users, orgsync.UserRecord{
+			ExternalUserID:           user.UserID,
+			ExternalOpenID:           user.OpenID,
+			ExternalUnionID:          user.UnionID,
+			Name:                     user.Name,
+			Email:                    user.Email,
+			Avatar:                   user.Avatar,
+			PrimaryOrgUnitExternalID: primaryDeptID,
+			OrgUnitExternalIDs:       orgUnitIDs,
+		})
+	}
+
+	return snapshot, nil
+}
+
+func validFeishuParentDepartmentID(parentID string, departmentIDs map[string]struct{}) string {
+	if parentID == "" || parentID == "0" {
+		return ""
+	}
+	if _, ok := departmentIDs[parentID]; ok {
+		return parentID
+	}
+
+	return ""
+}
+
+func validFeishuUserDepartmentID(departmentID string, departmentIDs map[string]struct{}) string {
+	if departmentID == "" || departmentID == "0" {
+		return ""
+	}
+	if _, ok := departmentIDs[departmentID]; ok {
+		return departmentID
+	}
+
+	return ""
+}
+
+func parseFeishuDepartmentIDs(raw string, departmentIDs map[string]struct{}) []string {
+	if raw == "" {
+		return nil
+	}
+
+	var ids []string
+	if err := sonic.UnmarshalString(raw, &ids); err != nil {
+		log.Warnf("feishu sync: failed to parse department_ids %q: %v", raw, err)
+		return nil
+	}
+
+	filtered := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if validFeishuUserDepartmentID(id, departmentIDs) == "" {
+			continue
+		}
+		filtered = append(filtered, id)
+	}
+
+	return filtered
+}
+
+func backfillFeishuGovernanceIDs(db *gorm.DB) error {
+	var users []models.FeishuUser
+	if err := db.Where("status = ?", 1).Find(&users).Error; err != nil {
+		return err
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, user := range users {
+			if user.OpenID == "" {
+				continue
+			}
+
+			enterpriseUserID := orgsync.EnterpriseUserID(models.WorkspaceDefaultID, models.ProviderFeishu, user.OpenID)
+			if err := tx.Model(&models.FeishuUser{}).
+				Where("id = ?", user.ID).
+				Updates(map[string]any{
+					"workspace_id":       models.WorkspaceDefaultID,
+					"enterprise_user_id": enterpriseUserID,
+					"external_tenant_id": user.TenantID,
+				}).Error; err != nil {
+				return err
+			}
+
+			groupID := user.GroupID
+			if groupID == "" {
+				groupID = fmt.Sprintf("feishu_%s", user.OpenID)
+			}
+			if err := tx.Model(&model.Group{}).
+				Where("id = ?", groupID).
+				Updates(map[string]any{
+					"owner_user_id": enterpriseUserID,
+				}).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 // deactivateDepartedUsers compares all active feishu_users in DB against the open_ids
@@ -853,7 +1053,7 @@ func syncDepartmentUsers(ctx context.Context, db *gorm.DB, departmentID string, 
 		}
 
 		// Ensure group exists, update name on conflict
-		if err := model.CreateOrUpdateGroupName(groupID, u.Name); err != nil {
+		if err := ensureFeishuPersonalGroup(db, groupID, u.OpenID, u.Name, userDeptID); err != nil {
 			log.Errorf("feishu sync: failed to create group for user %s: %v", u.OpenID, err)
 		}
 	}

@@ -13,7 +13,20 @@ import (
 
 // ResponsesURL builds a RequestURL for any Responses API sub-mode.
 // Used by OpenAI, PPIO, and Novita adaptors.
-func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestURL, error) {
+func ResponsesURL(
+	base string,
+	m mode.Mode,
+	responseID string,
+	rawQuery ...string,
+) (adaptor.RequestURL, error) {
+	withQuery := func(requestURL adaptor.RequestURL) adaptor.RequestURL {
+		if len(rawQuery) > 0 && rawQuery[0] != "" {
+			requestURL.URL += "?" + rawQuery[0]
+		}
+
+		return requestURL
+	}
+
 	switch m {
 	case mode.Responses:
 		u, err := url.JoinPath(base, "/responses")
@@ -21,7 +34,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodPost, URL: u}), nil
 
 	case mode.ResponsesGet:
 		u, err := url.JoinPath(base, "/responses", responseID)
@@ -29,7 +42,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodGet, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodGet, URL: u}), nil
 
 	case mode.ResponsesDelete:
 		u, err := url.JoinPath(base, "/responses", responseID)
@@ -37,7 +50,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodDelete, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodDelete, URL: u}), nil
 
 	case mode.ResponsesCancel:
 		u, err := url.JoinPath(base, "/responses", responseID, "cancel")
@@ -45,7 +58,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodPost, URL: u}), nil
 
 	case mode.ResponsesInputItems:
 		u, err := url.JoinPath(base, "/responses", responseID, "input_items")
@@ -53,7 +66,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodGet, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodGet, URL: u}), nil
 
 	case mode.ResponsesCompact:
 		u, err := url.JoinPath(base, "/responses", "compact")
@@ -61,7 +74,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodPost, URL: u}), nil
 
 	case mode.ResponsesInputTokens:
 		u, err := url.JoinPath(base, "/responses", "input_tokens")
@@ -69,7 +82,7 @@ func ResponsesURL(base string, m mode.Mode, responseID string) (adaptor.RequestU
 			return adaptor.RequestURL{}, err
 		}
 
-		return adaptor.RequestURL{Method: http.MethodPost, URL: u}, nil
+		return withQuery(adaptor.RequestURL{Method: http.MethodPost, URL: u}), nil
 
 	default:
 		return adaptor.RequestURL{}, fmt.Errorf("unsupported responses mode: %s", m)
