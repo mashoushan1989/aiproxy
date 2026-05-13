@@ -12,4 +12,7 @@ func RegisterRoutes(group *gin.RouterGroup, permMiddleware map[string]gin.Handle
 
 	rank := group.Group("/v2", permMiddleware["ranking_view"])
 	rank.GET("/user/ranking", HandleUserRanking)
+
+	exp := group.Group("/v2", permMiddleware["export_manage"])
+	exp.GET("/export", HandleExport)
 }

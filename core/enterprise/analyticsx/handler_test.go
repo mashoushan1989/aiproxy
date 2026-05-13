@@ -26,6 +26,7 @@ func TestRegisterRoutesAddsV2RoutesWithPermissions(t *testing.T) {
 		"/analytics/v2/department":         "dashboard_view",
 		"/analytics/v2/user/ranking":       "ranking_view",
 		"/analytics/v2/model/distribution": "dashboard_view",
+		"/analytics/v2/export":             "export_manage",
 	}
 
 	for path, permission := range want {

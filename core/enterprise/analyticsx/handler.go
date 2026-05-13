@@ -3,6 +3,7 @@
 package analyticsx
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -68,6 +69,61 @@ func HandleModelDistribution(c *gin.Context) {
 		"distribution": distribution,
 		"total":        len(distribution),
 	})
+}
+
+// HandleExport returns a scoped analytics export and records an audit event.
+func HandleExport(c *gin.Context) {
+	scope, filter, ok := resolveHandlerInputs(c)
+	if !ok {
+		return
+	}
+
+	dataset, err := BuildExportDataset(c.Request.Context(), newService(), scope, filter)
+	if err != nil {
+		_ = PersistExportAuditEvent(c.Request.Context(), model.DB, ExportAuditInput{
+			Scope:        scope,
+			Filter:       filter,
+			ResultStatus: AuditResultFailure,
+			Err:          err,
+		})
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	workbook, err := BuildExportWorkbook(dataset, filter)
+	if err != nil {
+		_ = PersistExportAuditEvent(c.Request.Context(), model.DB, ExportAuditInput{
+			Scope:        scope,
+			Filter:       filter,
+			RowCount:     dataset.TotalRows,
+			ResultStatus: AuditResultFailure,
+			Err:          err,
+		})
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := PersistExportAuditEvent(c.Request.Context(), model.DB, ExportAuditInput{
+		Scope:        scope,
+		Filter:       filter,
+		ResultStatus: AuditResultSuccess,
+		RowCount:     dataset.TotalRows,
+	}); err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf(
+		"enterprise_analytics_v2_%s_%s.xlsx",
+		time.Unix(filter.StartTimestamp, 0).Format("20060102"),
+		time.Unix(filter.EndTimestamp, 0).Format("20060102"),
+	)
+	c.Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+
+	if err := workbook.Write(c.Writer); err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to write excel file")
+	}
 }
 
 func resolveHandlerInputs(c *gin.Context) (Scope, Filter, bool) {
