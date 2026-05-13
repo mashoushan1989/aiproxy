@@ -353,11 +353,15 @@ func createModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 		existing.Owner = model.ModelOwnerNovita
 		existing.SyncedFrom = synccommon.SyncedFromNovita
 		existing.MissingCount = 0
+		synccommon.PreserveSyncLocalConfig(existing.Config, configData)
 		existing.Config = configData
 		existing.Type = modeFromEndpoints(m.ModelType, m.Endpoints)
 		existing.RPM = rpm
 		existing.TPM = tpm
-		setPriceFromV2Model(&existing.Price, m, exchangeRate)
+
+		if !synccommon.IsSyncPriceLocked(existing.Config) {
+			setPriceFromV2Model(&existing.Price, m, exchangeRate)
+		}
 
 		return tx.Save(&existing).Error
 	}
@@ -393,7 +397,10 @@ func updateModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 	existing.SyncedFrom = synccommon.SyncedFromNovita
 	existing.MissingCount = 0
 	existing.Type = modeFromEndpoints(m.ModelType, m.Endpoints)
-	existing.Config = synccommon.ToModelConfigKeys(buildConfigFromV2Model(m))
+
+	configData := synccommon.ToModelConfigKeys(buildConfigFromV2Model(m))
+	synccommon.PreserveSyncLocalConfig(existing.Config, configData)
+	existing.Config = configData
 
 	if m.RPM > 0 {
 		existing.RPM = int64(m.RPM)
@@ -403,7 +410,9 @@ func updateModelConfigV2(tx *gorm.DB, m *NovitaModelV2, exchangeRate float64) er
 		existing.TPM = int64(m.TPM)
 	}
 
-	setPriceFromV2Model(&existing.Price, m, exchangeRate)
+	if !synccommon.IsSyncPriceLocked(existing.Config) {
+		setPriceFromV2Model(&existing.Price, m, exchangeRate)
+	}
 
 	return tx.Save(&existing).Error
 }

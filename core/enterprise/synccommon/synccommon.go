@@ -11,6 +11,10 @@ import (
 	"github.com/labring/aiproxy/core/relay/mode"
 )
 
+// ModelConfigSyncPriceLockedKey marks synced model configs whose local Price
+// should not be overwritten by provider catalog sync.
+const ModelConfigSyncPriceLockedKey model.ModelConfigKey = "sync_price_locked"
+
 // IsAnthropicModelName returns true if the model name pattern strongly suggests
 // Anthropic protocol support, used as fallback when the upstream endpoints field
 // is empty or incomplete.
@@ -95,6 +99,21 @@ func ToModelConfigKeys(m map[string]any) map[model.ModelConfigKey]any {
 	}
 
 	return out
+}
+
+// IsSyncPriceLocked reports whether provider sync should preserve the existing
+// local Price for this model config.
+func IsSyncPriceLocked(config map[model.ModelConfigKey]any) bool {
+	locked, _ := config[ModelConfigSyncPriceLockedKey].(bool)
+	return locked
+}
+
+// PreserveSyncLocalConfig copies local sync-control markers from existing into
+// next. Provider metadata remains fully refreshed.
+func PreserveSyncLocalConfig(existing, next map[model.ModelConfigKey]any) {
+	if IsSyncPriceLocked(existing) {
+		next[ModelConfigSyncPriceLockedKey] = true
+	}
 }
 
 // IsLocalOnlyMode returns true for model types that are generated locally and
