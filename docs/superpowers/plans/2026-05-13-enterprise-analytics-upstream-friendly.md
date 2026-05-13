@@ -824,3 +824,33 @@ Architect decision:
 - Proceed with a new branch/worktree after current workspace cleanup.
 - Implement Tasks 1-7 first as the minimum commercial safety milestone.
 - Defer Task 9 aggregates until scoped v2 parity is proven.
+
+## Implementation Status
+
+Updated: 2026-05-13.
+
+Completed on branch `feat/enterprise-analytics-upstream-friendly`:
+
+- Tasks 1-4: additive `analyticsx` foundation, feature flags, scope resolver, bounded request parsing, and provider-neutral org directory adapter.
+- Task 5: scoped analytics service for department summaries, user ranking, and model distribution.
+- Task 6: feature-flagged `/enterprise/analytics/v2/*` routes with legacy endpoints preserved.
+- Task 7: scoped export dataset builder, v2 export route, export audit persistence, and secret/raw actor redaction.
+- Task 8: additive frontend v2 API client and dashboard entry behind `VITE_ENTERPRISE_ANALYTICS_V2`.
+- Task 9: disabled hourly/daily/monthly aggregate sidecar tables on LogDB with explicit aggregation functions; no runtime read path uses aggregates yet.
+
+Verification completed:
+
+```bash
+cd core && go test -tags enterprise ./enterprise/analytics ./enterprise/analyticsx ./enterprise/models ./model -count=1
+cd web && pnpm run build
+```
+
+Known verification caveat:
+
+- `cd web && pnpm run lint` still fails on pre-existing unrelated files (`RequirePermission.tsx`, `custom-report/ReportChart.tsx`) while the Task 8 touched files pass targeted ESLint.
+
+Merge readiness notes:
+
+- This worktree branch also contains earlier identity-source, org-sync, and passthrough/channel commits outside the enterprise analytics scope. For easier review and future upstream merges, prefer either splitting PRs by subsystem or clearly labeling one stacked PR series.
+- Aggregate tables are migrated in enterprise builds but remain disabled as a read path. Enabling `ENTERPRISE_ANALYTICS_AGGREGATES_ENABLED` still requires a follow-up parity comparison task before dashboard/report queries read from sidecar tables.
+- Hook-suggested docs (`CLAUDE.md`, `USER-GUIDE.md`, `enterprise/docs/progress.md`) are not present in this worktree; this plan document is the current implementation record.
