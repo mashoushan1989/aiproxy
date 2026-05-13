@@ -5,7 +5,9 @@ package ppio
 import (
 	"testing"
 
+	"github.com/labring/aiproxy/core/enterprise/synccommon"
 	"github.com/labring/aiproxy/core/model"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
 
 func TestPPIOURLHelpers(t *testing.T) {
@@ -171,5 +173,101 @@ func TestBuildConfigFromPPIOModelV2_ToolChoiceAndVision(t *testing.T) {
 				t.Errorf("max_output_tokens = %v, want %v", gotMaxOutput, tt.wantMaxOutput)
 			}
 		})
+	}
+}
+
+func TestUpdateModelConfigV2PreservesLockedPrice(t *testing.T) {
+	db, err := model.OpenSQLite(t.TempDir() + "/ppio-sync.db")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	oldDB := model.DB
+	model.DB = db
+	t.Cleanup(func() {
+		model.DB = oldDB
+	})
+
+	if err := db.AutoMigrate(&model.ModelConfig{}); err != nil {
+		t.Fatalf("migrate model_configs: %v", err)
+	}
+
+	manualPrice := model.Price{
+		InputPrice:      model.ZeroNullFloat64(0.123),
+		InputPriceUnit:  model.ZeroNullInt64(1),
+		OutputPrice:     model.ZeroNullFloat64(0.456),
+		OutputPriceUnit: model.ZeroNullInt64(1),
+		ConditionalPrices: []model.ConditionalPrice{
+			{
+				Condition: model.PriceCondition{
+					InputTokenMin: 1,
+					InputTokenMax: 100,
+				},
+				Price: model.Price{
+					InputPrice:      model.ZeroNullFloat64(0.111),
+					InputPriceUnit:  model.ZeroNullInt64(1),
+					OutputPrice:     model.ZeroNullFloat64(0.222),
+					OutputPriceUnit: model.ZeroNullInt64(1),
+				},
+			},
+		},
+	}
+
+	existing := model.ModelConfig{
+		Model:      "pa/gpt-5.5",
+		Owner:      model.ModelOwnerPPIO,
+		SyncedFrom: synccommon.SyncedFromPPIO,
+		Type:       mode.ChatCompletions,
+		RPM:        60,
+		TPM:        1000000,
+		Config: map[model.ModelConfigKey]any{
+			synccommon.ModelConfigSyncPriceLockedKey: true,
+			"old_field":                              "keep-no",
+		},
+		Price: manualPrice,
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("seed model config: %v", err)
+	}
+
+	remote := &PPIOModelV2{
+		ID:                           "pa/gpt-5.5",
+		ModelType:                    "chat",
+		Endpoints:                    []string{"chat/completions", "anthropic"},
+		Features:                     []string{"tool_use"},
+		InputModalities:              []string{"text"},
+		MaxOutputTokens:              8192,
+		RPM:                          120,
+		TPM:                          2000000,
+		InputTokenPricePerM:          999000000,
+		OutputTokenPricePerM:         888000000,
+		CacheReadInputTokenPricePerM: 777000000,
+	}
+
+	if err := updateModelConfigV2(db, remote); err != nil {
+		t.Fatalf("update model config: %v", err)
+	}
+
+	var got model.ModelConfig
+	if err := db.Where("model = ?", "pa/gpt-5.5").First(&got).Error; err != nil {
+		t.Fatalf("load updated model config: %v", err)
+	}
+
+	if got.Price.InputPrice != manualPrice.InputPrice ||
+		got.Price.OutputPrice != manualPrice.OutputPrice ||
+		len(got.Price.ConditionalPrices) != len(manualPrice.ConditionalPrices) {
+		t.Fatalf("price was overwritten: got %#v want %#v", got.Price, manualPrice)
+	}
+
+	if got.RPM != 120 || got.TPM != 2000000 {
+		t.Fatalf("limits were not refreshed: rpm=%d tpm=%d", got.RPM, got.TPM)
+	}
+
+	if locked, _ := got.Config[synccommon.ModelConfigSyncPriceLockedKey].(bool); !locked {
+		t.Fatalf("sync price lock marker was not preserved in config: %#v", got.Config)
+	}
+
+	if _, ok := got.Config["old_field"]; ok {
+		t.Fatalf("unrelated stale config key was preserved: %#v", got.Config)
 	}
 }

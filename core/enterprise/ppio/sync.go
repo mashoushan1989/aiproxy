@@ -926,11 +926,15 @@ func createModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 		existing.Owner = model.ModelOwnerPPIO
 		existing.SyncedFrom = synccommon.SyncedFromPPIO
 		existing.MissingCount = 0
+		synccommon.PreserveSyncLocalConfig(existing.Config, configData)
 		existing.Config = configData
 		existing.Type = inferModeFromPPIO(m.ModelType, m.Endpoints)
 		existing.RPM = rpm
 		existing.TPM = tpm
-		setPriceFromV2Model(&existing.Price, m)
+
+		if !synccommon.IsSyncPriceLocked(existing.Config) {
+			setPriceFromV2Model(&existing.Price, m)
+		}
 
 		return tx.Save(&existing).Error
 	}
@@ -967,7 +971,10 @@ func updateModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 	existing.SyncedFrom = synccommon.SyncedFromPPIO
 	existing.MissingCount = 0
 	existing.Type = inferModeFromPPIO(m.ModelType, m.Endpoints)
-	existing.Config = synccommon.ToModelConfigKeys(buildConfigFromPPIOModelV2(m))
+
+	configData := synccommon.ToModelConfigKeys(buildConfigFromPPIOModelV2(m))
+	synccommon.PreserveSyncLocalConfig(existing.Config, configData)
+	existing.Config = configData
 
 	if m.RPM > 0 {
 		existing.RPM = int64(m.RPM)
@@ -977,7 +984,9 @@ func updateModelConfigV2(tx *gorm.DB, m *PPIOModelV2) error {
 		existing.TPM = int64(m.TPM)
 	}
 
-	setPriceFromV2Model(&existing.Price, m)
+	if !synccommon.IsSyncPriceLocked(existing.Config) {
+		setPriceFromV2Model(&existing.Price, m)
+	}
 
 	return tx.Save(&existing).Error
 }
