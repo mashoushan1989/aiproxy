@@ -2,12 +2,18 @@
 
 package analytics
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/labring/aiproxy/core/enterprise/analyticsx"
+)
 
 // RegisterRoutes registers all analytics routes under the given router group.
 // permMiddleware maps permission keys to gin middleware for access control.
 func RegisterRoutes(group *gin.RouterGroup, permMiddleware map[string]gin.HandlerFunc) {
 	analytics := group.Group("/analytics")
+	if analyticsx.LoadConfig().V2Enabled {
+		analyticsx.RegisterRoutes(analytics, permMiddleware)
+	}
 
 	// Dashboard view permission
 	dash := analytics.Group("", permMiddleware["dashboard_view"])
