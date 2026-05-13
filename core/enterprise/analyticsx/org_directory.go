@@ -15,6 +15,7 @@ type OrgDirectory interface {
 	DescendantOrgUnitIDs(ctx context.Context, workspaceID string, orgUnitIDs []string) ([]string, error)
 	GroupIDsForOrgUnits(ctx context.Context, workspaceID string, orgUnitIDs []string) ([]string, error)
 	GroupIDsForUsers(ctx context.Context, workspaceID string, userIDs []string) ([]string, error)
+	AllGroupIDsForWorkspace(ctx context.Context, workspaceID string) ([]string, error)
 }
 
 type GORMOrgDirectory struct {
