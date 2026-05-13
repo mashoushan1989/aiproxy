@@ -41,6 +41,7 @@ test-*.py
 CLAUDE.md
 DEPLOYMENT.md
 USER-GUIDE.md
+docs/commercial/
 
 # Temporary docs (not part of main docs)
 PPIO-*.md
