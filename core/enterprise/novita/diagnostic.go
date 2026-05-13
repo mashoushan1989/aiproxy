@@ -219,7 +219,7 @@ func compareModelConfigsV2(
 			float64(local.Price.CachedPrice), remoteCacheRead))
 	}
 
-	if !configMapsEqual(local.Config, buildConfigFromV2Model(remote)) {
+	if !configMapsEqual(synccommon.ComparableModelConfig(local.Config), buildConfigFromV2Model(remote)) {
 		changes = append(changes, "config updated")
 	}
 
