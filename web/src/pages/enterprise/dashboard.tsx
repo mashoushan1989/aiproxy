@@ -15,6 +15,7 @@ import { enterpriseApi, type DepartmentSummary, type ModelDistributionItem, type
 import { ROUTES } from "@/routes/constants"
 import { type TimeRange, getTimeRange, formatNumber, formatAmount, formatRate, useDarkMode, getEChartsTheme } from "@/lib/enterprise"
 import { cn } from "@/lib/utils"
+import EnterpriseDashboardV2 from "./dashboard-v2"
 
 // Column configuration for department summary table
 type DeptSortField = "department_name" | "member_count" | "active_users" | "request_count" | "used_amount" | "total_tokens" | "input_tokens" | "output_tokens" | "success_rate" | "avg_cost" | "avg_cost_per_user" | "unique_models"
@@ -313,6 +314,14 @@ function ModelDistributionChart({ models }: { models: ModelDistributionItem[] })
 }
 
 export default function EnterpriseDashboard() {
+    if (import.meta.env.VITE_ENTERPRISE_ANALYTICS_V2 === "true") {
+        return <EnterpriseDashboardV2 />
+    }
+
+    return <EnterpriseDashboardLegacy />
+}
+
+function EnterpriseDashboardLegacy() {
     const { t } = useTranslation()
     const navigate = useNavigate()
     const [timeRange, setTimeRange] = useState<TimeRange>("7d")
