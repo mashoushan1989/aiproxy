@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,11 @@ const MCPList = () => {
   const [authMethod, setAuthMethod] = useState<"query" | "header">("query");
   const { toast } = useToast();
   const { t } = useTranslation();
+  const toastRef = useRef(toast);
+  const tRef = useRef(t);
+
+  toastRef.current = toast;
+  tRef.current = t;
 
   const fetchMCPs = useCallback(async () => {
     try {
@@ -35,15 +40,15 @@ const MCPList = () => {
       const enabledMCPs = data.filter((mcp) => mcp.status === 1);
       setMcps(enabledMCPs);
     } catch {
-      toast({
-        title: t("error.loading"),
-        description: t("mcp.list.noResults"),
+      toastRef.current({
+        title: tRef.current("error.loading"),
+        description: tRef.current("mcp.list.noResults"),
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  }, [t, toast]);
+  }, []);
 
   useEffect(() => {
     fetchMCPs();

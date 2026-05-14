@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,11 @@ const EmbedMCPComponent = () => {
   const [savingId, setSavingId] = useState<string | null>(null);
   const { toast } = useToast();
   const { t } = useTranslation();
+  const toastRef = useRef(toast);
+  const tRef = useRef(t);
+
+  toastRef.current = toast;
+  tRef.current = t;
 
   const fetchEmbedMCPs = useCallback(async () => {
     try {
@@ -36,15 +41,15 @@ const EmbedMCPComponent = () => {
       });
       setConfigValues(initialConfigValues);
     } catch {
-      toast({
-        title: t("error.loading"),
-        description: t("mcp.embed.noEmbeddedServers"),
+      toastRef.current({
+        title: tRef.current("error.loading"),
+        description: tRef.current("mcp.embed.noEmbeddedServers"),
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  }, [t, toast]);
+  }, []);
 
   useEffect(() => {
     fetchEmbedMCPs();

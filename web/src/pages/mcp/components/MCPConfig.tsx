@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Card,
@@ -79,6 +79,9 @@ const MCPConfig = () => {
   const [mcpToDelete, setMcpToDelete] = useState<PublicMCP | null>(null);
   const [authMethod, setAuthMethod] = useState<"query" | "header">("query");
   const { toast } = useToast();
+  const toastRef = useRef(toast);
+
+  toastRef.current = toast;
 
   const fetchMCPs = useCallback(async () => {
     try {
@@ -86,7 +89,7 @@ const MCPConfig = () => {
       const data = await getAllMCPs();
       setMCPs(data);
     } catch {
-      toast({
+      toastRef.current({
         title: "Error",
         description: "Failed to fetch MCPs",
         variant: "destructive",
@@ -94,7 +97,7 @@ const MCPConfig = () => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     fetchMCPs();
