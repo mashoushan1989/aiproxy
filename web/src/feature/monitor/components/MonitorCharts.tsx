@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { EChartsOption, TooltipComponentFormatterCallbackParams } from 'echarts'
 
@@ -244,7 +244,7 @@ export function MonitorCharts({ chartData, modelRanking, detailRanking = [], has
         avgTtfb: number
     }
 
-    const toRow = (m: ModelSummary): TableRow => {
+    const toRow = useCallback((m: ModelSummary): TableRow => {
         const successCalls = (m?.request_count || 0) - (m?.exception_count || 0)
         return {
             model: m?.model || '',
@@ -256,9 +256,9 @@ export function MonitorCharts({ chartData, modelRanking, detailRanking = [], has
             avgResponseTime: successCalls > 0 ? (m?.total_time_milliseconds || 0) / successCalls : 0,
             avgTtfb: successCalls > 0 ? (m?.total_ttfb_milliseconds || 0) / successCalls : 0,
         }
-    }
+    }, [])
 
-    const tableData = useMemo(() => (modelRanking || []).map(toRow), [modelRanking])
+    const tableData = useMemo(() => (modelRanking || []).map(toRow), [modelRanking, toRow])
 
     // Build detail rows grouped by model
     const detailByModel = useMemo(() => {
@@ -270,7 +270,7 @@ export function MonitorCharts({ chartData, modelRanking, detailRanking = [], has
             map.set(modelKey, rows)
         }
         return map
-    }, [detailRanking])
+    }, [detailRanking, toRow])
 
     const hasDetailData = detailRanking.length > 0
     const rankingModels = useMemo(

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,11 +20,7 @@ const EmbedMCPComponent = () => {
   const { toast } = useToast();
   const { t } = useTranslation();
 
-  useEffect(() => {
-    fetchEmbedMCPs();
-  }, []);
-
-  const fetchEmbedMCPs = async () => {
+  const fetchEmbedMCPs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getEmbedMCPs();
@@ -48,7 +44,11 @@ const EmbedMCPComponent = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [t, toast]);
+
+  useEffect(() => {
+    fetchEmbedMCPs();
+  }, [fetchEmbedMCPs]);
 
   const handleInputChange = (
     mcpId: string,

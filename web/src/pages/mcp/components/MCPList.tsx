@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,11 +27,7 @@ const MCPList = () => {
   const { toast } = useToast();
   const { t } = useTranslation();
 
-  useEffect(() => {
-    fetchMCPs();
-  }, []);
-
-  const fetchMCPs = async () => {
+  const fetchMCPs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getAllMCPs();
@@ -47,7 +43,11 @@ const MCPList = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [t, toast]);
+
+  useEffect(() => {
+    fetchMCPs();
+  }, [fetchMCPs]);
 
   const truncateReadme = (readme: string, maxLength = 100) => {
     if (readme.length <= maxLength) return readme;

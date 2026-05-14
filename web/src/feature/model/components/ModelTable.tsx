@@ -1,5 +1,5 @@
 // src/feature/model/components/ModelTable.tsx
-import { useState, useMemo, useRef } from "react";
+import { useCallback, useState, useMemo, useRef } from "react";
 import { useModels, useModelSets } from "../hooks";
 import { useChannelTypeMetas } from "@/feature/channel/hooks";
 import { useRuntimeMetrics } from "@/feature/monitor/runtime-hooks";
@@ -147,12 +147,12 @@ export function ModelTable() {
   }, [models, t]);
 
   // Get channel type name by type ID
-  const getChannelTypeName = (typeId: number): string => {
+  const getChannelTypeName = useCallback((typeId: number): string => {
     if (!channelTypeMetas) return `Type: ${typeId}`;
     
     const typeKey = String(typeId);
     return channelTypeMetas[typeKey]?.name || `Type: ${typeId}`;
-  };
+  }, [channelTypeMetas]);
 
   const toModelSaveRequest = (model: ModelConfig): ModelSaveRequest => {
     const { created_at: _c, updated_at: _u, ...rest } = model;
@@ -195,8 +195,24 @@ export function ModelTable() {
 
   const formatPercent = (value?: number) => `${((value || 0) * 100).toFixed(1)}%`;
 
+  const exportSingleModel = useCallback((model: ModelConfig) => {
+    const exportData = [toModelSaveRequest(model)];
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `model_${model.model}_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(t("model.exportSuccess"));
+  }, [t]);
+
   // Create table columns
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const columns: ColumnDef<ModelConfig>[] = useMemo(() => [
     {
       accessorKey: "model",
@@ -523,7 +539,7 @@ export function ModelTable() {
         </DropdownMenu>
       ),
     },
-  ], [t, modelSets, channelTypeMetas, isLoadingModelSets, isLoadingTypeMetas, runtimeMetrics]);
+  ], [t, modelSets, isLoadingModelSets, isLoadingTypeMetas, runtimeMetrics, exportSingleModel, getChannelTypeName]);
 
   // Initialize table
   const table = useReactTable({
@@ -601,24 +617,6 @@ export function ModelTable() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `model_configs_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success(t("model.exportSuccess"));
-  };
-
-  // Export single model config to JSON file
-  const exportSingleModel = (model: ModelConfig) => {
-    const exportData = [toModelSaveRequest(model)];
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `model_${model.model}_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

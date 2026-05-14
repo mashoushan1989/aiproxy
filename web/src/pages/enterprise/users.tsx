@@ -276,14 +276,17 @@ function PermissionConfigTab() {
     const [dirty, setDirty] = useState<Set<string>>(new Set())
 
     // Initialize local state from server data
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
-        if (rolePermsData?.roles && Object.keys(localPerms).length === 0) {
+        if (rolePermsData?.roles) {
+            setLocalPerms((prev) => {
+                if (Object.keys(prev).length > 0) return prev
+
             const init: Record<string, Set<string>> = {}
             for (const [role, perms] of Object.entries(rolePermsData.roles)) {
                 init[role] = new Set(perms)
             }
-            setLocalPerms(init)
+                return init
+            })
         }
     }, [rolePermsData])
 
@@ -1080,7 +1083,7 @@ export default function UsersPage() {
         },
     ], [t, handleRoleEdit, handleQuotaAssign, handleSort, renderSortIcon, canManageUsers])
 
-    const allUsers = data?.users || []
+    const allUsers = useMemo(() => data?.users || [], [data?.users])
     const policies = policiesData?.policies || []
 
     // Client-side policy filter

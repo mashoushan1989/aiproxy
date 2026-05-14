@@ -647,7 +647,7 @@ function DepartmentBindingTab({ policies, canManage }: { policies: QuotaPolicy[]
 
     const level1Depts = deptLevels?.level1_departments || []
     const level2Depts = level2Data?.level2_departments || []
-    const bindingList = bindings?.bindings || []
+    const bindingList = useMemo(() => bindings?.bindings || [], [bindings?.bindings])
 
     // Reset level2 filter when level1 changes
     useEffect(() => { setFilterLevel2("") }, [filterLevel1])

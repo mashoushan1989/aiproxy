@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Card,
@@ -80,11 +80,7 @@ const MCPConfig = () => {
   const [authMethod, setAuthMethod] = useState<"query" | "header">("query");
   const { toast } = useToast();
 
-  useEffect(() => {
-    fetchMCPs();
-  }, []);
-
-  const fetchMCPs = async () => {
+  const fetchMCPs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getAllMCPs();
@@ -98,7 +94,11 @@ const MCPConfig = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    fetchMCPs();
+  }, [fetchMCPs]);
 
   const handleCreateChange = (
     field: keyof typeof newMCP,

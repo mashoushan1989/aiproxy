@@ -38,8 +38,10 @@ export const EChart: React.FC<EChartProps> = ({
     useEffect(() => {
         if (!chartRef.current) return
 
+        const chartContainer = chartRef.current
+
         // 初始化图表
-        const chart = init(chartRef.current, theme)
+        const chart = init(chartContainer, theme)
 
         // 设置点击事件
         if (onClick) {
@@ -54,7 +56,7 @@ export const EChart: React.FC<EChartProps> = ({
         const resizeObserver = new ResizeObserver(() => {
             resizeChart()
         })
-        resizeObserver.observe(chartRef.current)
+        resizeObserver.observe(chartContainer)
 
         // 图表准备完成回调
         if (onChartReady) {
@@ -65,9 +67,7 @@ export const EChart: React.FC<EChartProps> = ({
         return () => {
             chart?.dispose()
             window.removeEventListener('resize', handleResize)
-            if (chartRef.current) {
-                resizeObserver.unobserve(chartRef.current)
-            }
+            resizeObserver.unobserve(chartContainer)
             resizeObserver.disconnect()
         }
     }, [theme, onChartReady, onClick, resizeChart])
@@ -89,4 +89,4 @@ export const EChart: React.FC<EChartProps> = ({
             className={cn("w-full", className)}
         />
     )
-} 
+}
