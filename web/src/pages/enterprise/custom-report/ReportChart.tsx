@@ -72,8 +72,8 @@ function xAxisVisibleLabelStep(visibleCount: number): number {
 }
 
 function xAxisDynamicInterval(labels: string[]): (index: number) => boolean {
-    let visibleStart = 0
-    let visibleEnd = labels.length - 1
+    const visibleStart = 0
+    const visibleEnd = labels.length - 1
 
     return (index: number) => {
         const visibleCount = Math.max(visibleEnd - visibleStart + 1, 1)

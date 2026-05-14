@@ -13,9 +13,11 @@ export function RequirePermission({
     fallback?: RoutePath
 }) {
     const enterpriseUser = useAuthStore(s => s.enterpriseUser)
+    const { data, isLoading } = useMyPermissions()
+
     // Admin Key login (no enterpriseUser) → full access, same as RequireAdmin
     if (!enterpriseUser) return <>{children}</>
-    const { data, isLoading } = useMyPermissions()
+
     // Wait for permissions to load before deciding — prevents false redirect on first render
     if (isLoading) return null
     const has = !!data?.permissions.includes(permission)
