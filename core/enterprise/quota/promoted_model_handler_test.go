@@ -110,6 +110,54 @@ func TestPromotedModelHandlersCreateListAndAudit(t *testing.T) {
 	}
 }
 
+func TestPromotedModelHandlersReturnModelPriceDTO(t *testing.T) {
+	router, _ := setupPromotedModelHandlerRouter(t)
+
+	createResp := requestJSON(t, router, http.MethodPost, "/api/enterprise/quota/policies/1/promoted-models", gin.H{
+		"model":   "pa/gpt-5.5",
+		"enabled": true,
+		"override_price": gin.H{
+			"input_price":      0.0000145,
+			"input_price_unit": 1,
+			"conditional_prices": []gin.H{
+				{
+					"condition": gin.H{"service_tier": "flex"},
+					"price": gin.H{
+						"input_price":      0.00001,
+						"input_price_unit": 1,
+					},
+				},
+			},
+		},
+	})
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body.String())
+	}
+
+	listResp := requestJSON(t, router, http.MethodGet, "/api/enterprise/quota/policies/1/promoted-models", nil)
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", listResp.Code, listResp.Body.String())
+	}
+
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Entries []struct {
+				OverridePrice model.Price `json:"override_price"`
+			} `json:"entries"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(listResp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(body.Data.Entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(body.Data.Entries))
+	}
+	if len(body.Data.Entries[0].OverridePrice.ConditionalPrices) != 1 {
+		t.Fatalf("conditional prices = %#v, want one entry", body.Data.Entries[0].OverridePrice.ConditionalPrices)
+	}
+}
+
 func TestPromotedModelHandlerRejectsLockedPriceWithoutOverride(t *testing.T) {
 	router, policy := setupPromotedModelHandlerRouter(t)
 

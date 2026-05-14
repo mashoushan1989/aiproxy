@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/labring/aiproxy/core/enterprise/models"
+	"github.com/labring/aiproxy/core/model"
 )
 
 func TestApplyPolicyTiers_ModelBlocking(t *testing.T) {
@@ -34,46 +35,46 @@ func TestApplyPolicyTiers_ModelBlocking(t *testing.T) {
 	}{
 		// Tier 1 (usage < 0.7): no model blocking
 		{
-			name: "tier1 expensive model allowed",
+			name:       "tier1 expensive model allowed",
 			usageRatio: 0.5,
-			model: "claude-opus-4-20250101", wantBlocked: false,
+			model:      "claude-opus-4-20250101", wantBlocked: false,
 			wantRPM: 1.0, wantTPM: 1.0,
 		},
 
 		// Tier 2 (0.7 <= usage < 0.9): blocked models get rejected
 		{
-			name: "tier2 blocked model claude-opus",
+			name:       "tier2 blocked model claude-opus",
 			usageRatio: 0.75,
-			model: "claude-opus-4-20250101", wantBlocked: true,
+			model:      "claude-opus-4-20250101", wantBlocked: true,
 		},
 		{
-			name: "tier2 blocked model gpt-4o",
+			name:       "tier2 blocked model gpt-4o",
 			usageRatio: 0.75,
-			model: "gpt-4o", wantBlocked: true,
+			model:      "gpt-4o", wantBlocked: true,
 		},
 		{
-			name: "tier2 allowed model gpt-4o-mini",
+			name:       "tier2 allowed model gpt-4o-mini",
 			usageRatio: 0.75,
-			model: "gpt-4o-mini", wantBlocked: false,
+			model:      "gpt-4o-mini", wantBlocked: false,
 			wantRPM: 0.5, wantTPM: 0.5,
 		},
 		{
-			name: "tier2 allowed model claude-sonnet",
+			name:       "tier2 allowed model claude-sonnet",
 			usageRatio: 0.75,
-			model: "claude-sonnet-4-20250101", wantBlocked: false,
+			model:      "claude-sonnet-4-20250101", wantBlocked: false,
 			wantRPM: 0.5, wantTPM: 0.5,
 		},
 
 		// Tier 3 (usage >= 0.9): more models blocked
 		{
-			name: "tier3 blocked model gpt-4o-mini",
+			name:       "tier3 blocked model gpt-4o-mini",
 			usageRatio: 0.95,
-			model: "gpt-4o-mini", wantBlocked: true,
+			model:      "gpt-4o-mini", wantBlocked: true,
 		},
 		{
-			name: "tier3 allowed model claude-sonnet",
+			name:       "tier3 allowed model claude-sonnet",
 			usageRatio: 0.95,
-			model: "claude-sonnet-4-20250101", wantBlocked: false,
+			model:      "claude-sonnet-4-20250101", wantBlocked: false,
 			wantRPM: 0.1, wantTPM: 0.1,
 		},
 
@@ -156,6 +157,34 @@ func TestApplyPolicyTiers_ZeroPeriodQuota(t *testing.T) {
 	}
 	if rpm != 1.0 || tpm != 1.0 {
 		t.Errorf("rpm=%v tpm=%v, want 1.0/1.0", rpm, tpm)
+	}
+}
+
+func TestApplyPolicyTiersWithPriceUsesPromotedPriceForPriceBlocking(t *testing.T) {
+	policy := &models.QuotaPolicy{
+		Tier1Ratio:                0.7,
+		Tier2Ratio:                0.9,
+		Tier2RPMMultiplier:        0.5,
+		Tier2TPMMultiplier:        0.5,
+		Tier2PriceInputThreshold:  20,
+		Tier2PriceOutputThreshold: 100,
+		Tier2PriceCondition:       "or",
+		PeriodQuota:               100,
+	}
+
+	price := model.Price{
+		InputPrice:      model.ZeroNullFloat64(0.0000145),
+		InputPriceUnit:  model.ZeroNullInt64(1),
+		OutputPrice:     model.ZeroNullFloat64(0.000087),
+		OutputPriceUnit: model.ZeroNullInt64(1),
+	}
+
+	_, rpm, tpm, blocked := applyPolicyTiersWithPrice(policy, 0.8, "pa/gpt-5.5", price)
+	if blocked {
+		t.Fatalf("discounted promoted price should not be blocked")
+	}
+	if rpm != 0.5 || tpm != 0.5 {
+		t.Fatalf("rpm/tpm = %v/%v, want 0.5/0.5", rpm, tpm)
 	}
 }
 

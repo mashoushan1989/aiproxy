@@ -100,6 +100,42 @@ func TestCreatePromotedModelPolicyDefaultsUnlockedAndAudits(t *testing.T) {
 	}
 }
 
+func TestCreatePromotedModelPolicyAuditFailureRollsBack(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+
+	if err := db.Exec(`
+		CREATE TRIGGER fail_promoted_model_audit
+		BEFORE INSERT ON enterprise_promoted_model_policy_audits
+		BEGIN
+			SELECT RAISE(FAIL, 'audit insert failed');
+		END;
+	`).Error; err != nil {
+		t.Fatalf("create audit failure trigger: %v", err)
+	}
+
+	_, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		OverridePrice: model.Price{
+			InputPrice:     model.ZeroNullFloat64(0.1),
+			InputPriceUnit: model.ZeroNullInt64(1),
+		},
+	}, AuditOperator{ID: "admin"})
+	if err == nil {
+		t.Fatalf("expected audit failure")
+	}
+
+	var count int64
+	if err := db.Model(&entmodels.PromotedModelPolicy{}).Where("quota_policy_id = ?", policy.ID).Count(&count).Error; err != nil {
+		t.Fatalf("count promoted policies: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("promoted policy persisted after audit failure, count=%d", count)
+	}
+}
+
 func TestUpdatePromotedModelPolicyRejectsLockedPriceWithoutForce(t *testing.T) {
 	db := setupPromotedModelPolicyTestDB(t)
 	policy := seedPromotedModelFixtures(t, db)

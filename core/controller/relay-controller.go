@@ -169,16 +169,29 @@ func relayHandler(c *gin.Context, meta *meta.Meta, mc *model.ModelCaches) *contr
 	return controller.Handle(adaptor, c, meta, adaptorStore)
 }
 
-func defaultPriceFunc(c *gin.Context, mc model.ModelConfig) (model.Price, error) {
-	group := middleware.GetGroup(c)
-	if groupModelConfig, ok := group.ModelConfigs[mc.Model]; ok && groupModelConfig.OverridePrice {
-		return mc.Price, nil
-	}
-	if middleware.EnterprisePriceResolver != nil {
-		return middleware.EnterprisePriceResolver(group, mc.Model, mc.Price)
+func defaultPriceFunc(_ *gin.Context, mc model.ModelConfig) (model.Price, error) {
+	return mc.Price, nil
+}
+
+func resolveRequestPrice(c *gin.Context, mc model.ModelConfig, getPrice GetRequestPrice) (model.Price, error) {
+	price := model.Price{}
+	var err error
+	if getPrice != nil {
+		price, err = getPrice(c, mc)
+		if err != nil {
+			return model.Price{}, err
+		}
 	}
 
-	return mc.Price, nil
+	group := middleware.GetGroup(c)
+	if groupModelConfig, ok := group.ModelConfigs[mc.Model]; ok && groupModelConfig.OverridePrice {
+		return price, nil
+	}
+	if middleware.EnterprisePriceResolver != nil {
+		return middleware.EnterprisePriceResolver(group, mc.Model, price)
+	}
+
+	return price, nil
 }
 
 func relayController(m mode.Mode) RelayController {
@@ -269,17 +282,14 @@ func relay(c *gin.Context, mode mode.Mode, relayController RelayController) {
 		return
 	}
 
-	price := model.Price{}
-	if relayController.GetRequestPrice != nil {
-		price, err = relayController.GetRequestPrice(c, mc)
-		if err != nil {
-			middleware.AbortLogWithMessageWithMode(mode, c,
-				http.StatusInternalServerError,
-				"get request price failed: "+err.Error(),
-			)
+	price, err := resolveRequestPrice(c, mc, relayController.GetRequestPrice)
+	if err != nil {
+		middleware.AbortLogWithMessageWithMode(mode, c,
+			http.StatusInternalServerError,
+			"get request price failed: "+err.Error(),
+		)
 
-			return
-		}
+		return
 	}
 
 	meta := NewMetaByContext(c, initialChannel.channel, mode)

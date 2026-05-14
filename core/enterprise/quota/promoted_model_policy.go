@@ -116,6 +116,7 @@ func modelPriceFromCommercialPrice(price entmodels.CommercialPrice) (model.Price
 }
 
 func validatePromotedModelEntry(
+	db *gorm.DB,
 	policyID int,
 	modelName string,
 	channelID int,
@@ -137,18 +138,18 @@ func validatePromotedModelEntry(
 	}
 
 	var policy entmodels.QuotaPolicy
-	if err := model.DB.First(&policy, policyID).Error; err != nil {
+	if err := db.First(&policy, policyID).Error; err != nil {
 		return model.Price{}, fmt.Errorf("quota policy not found: %w", err)
 	}
 
 	var mc model.ModelConfig
-	if err := model.DB.Where("model = ?", modelName).First(&mc).Error; err != nil {
+	if err := db.Where("model = ?", modelName).First(&mc).Error; err != nil {
 		return model.Price{}, fmt.Errorf("model config not found: %w", err)
 	}
 
 	if channelID > 0 {
 		var channel model.Channel
-		if err := model.DB.First(&channel, channelID).Error; err != nil {
+		if err := db.First(&channel, channelID).Error; err != nil {
 			return model.Price{}, fmt.Errorf("channel not found: %w", err)
 		}
 
@@ -171,59 +172,66 @@ func CreatePromotedModelEntry(
 	req CreatePromotedModelEntryRequest,
 	op AuditOperator,
 ) (*entmodels.PromotedModelPolicy, error) {
-	basePrice, err := validatePromotedModelEntry(
-		req.QuotaPolicyID,
-		req.Model,
-		req.ChannelID,
-		req.OverridePrice,
-		req.EffectiveAt,
-		req.ExpiresAt,
-	)
+	var entry entmodels.PromotedModelPolicy
+
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		basePrice, err := validatePromotedModelEntry(
+			tx,
+			req.QuotaPolicyID,
+			req.Model,
+			req.ChannelID,
+			req.OverridePrice,
+			req.EffectiveAt,
+			req.ExpiresAt,
+		)
+		if err != nil {
+			return err
+		}
+
+		baseCommercialPrice, err := commercialPriceFromModelPrice(basePrice)
+		if err != nil {
+			return err
+		}
+
+		overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
+		if err != nil {
+			return err
+		}
+
+		entry = entmodels.PromotedModelPolicy{
+			QuotaPolicyID:  req.QuotaPolicyID,
+			Model:          req.Model,
+			ChannelID:      req.ChannelID,
+			DisplayName:    req.DisplayName,
+			RecommendBadge: req.RecommendBadge,
+			SortOrder:      req.SortOrder,
+			Enabled:        req.Enabled,
+			BasePrice:      baseCommercialPrice,
+			OverridePrice:  overrideCommercialPrice,
+			DiscountRate:   req.DiscountRate,
+			PriceLocked:    req.PriceLocked,
+			EffectiveAt:    req.EffectiveAt,
+			ExpiresAt:      req.ExpiresAt,
+			Version:        1,
+			CreatedBy:      op.ID,
+			UpdatedBy:      op.ID,
+		}
+
+		if err := tx.Create(&entry).Error; err != nil {
+			return err
+		}
+
+		return writePromotedModelAudit(
+			tx,
+			&entry,
+			entmodels.PromotedModelAuditActionCreate,
+			nil,
+			&entry,
+			op,
+			"created promoted model",
+		)
+	})
 	if err != nil {
-		return nil, err
-	}
-
-	baseCommercialPrice, err := commercialPriceFromModelPrice(basePrice)
-	if err != nil {
-		return nil, err
-	}
-
-	overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
-	if err != nil {
-		return nil, err
-	}
-
-	entry := entmodels.PromotedModelPolicy{
-		QuotaPolicyID:  req.QuotaPolicyID,
-		Model:          req.Model,
-		ChannelID:      req.ChannelID,
-		DisplayName:    req.DisplayName,
-		RecommendBadge: req.RecommendBadge,
-		SortOrder:      req.SortOrder,
-		Enabled:        req.Enabled,
-		BasePrice:      baseCommercialPrice,
-		OverridePrice:  overrideCommercialPrice,
-		DiscountRate:   req.DiscountRate,
-		PriceLocked:    req.PriceLocked,
-		EffectiveAt:    req.EffectiveAt,
-		ExpiresAt:      req.ExpiresAt,
-		Version:        1,
-		CreatedBy:      op.ID,
-		UpdatedBy:      op.ID,
-	}
-
-	if err := model.DB.Create(&entry).Error; err != nil {
-		return nil, err
-	}
-
-	if err := writePromotedModelAudit(
-		&entry,
-		entmodels.PromotedModelAuditActionCreate,
-		nil,
-		&entry,
-		op,
-		"created promoted model",
-	); err != nil {
 		return nil, err
 	}
 
@@ -237,66 +245,70 @@ func UpdatePromotedModelEntry(
 	overrideLocked bool,
 ) (*entmodels.PromotedModelPolicy, error) {
 	var existing entmodels.PromotedModelPolicy
-	if err := model.DB.First(&existing, id).Error; err != nil {
-		return nil, err
-	}
-
-	existingOverridePrice, err := modelPriceFromCommercialPrice(existing.OverridePrice)
-	if err != nil {
-		return nil, err
-	}
-
-	if existing.PriceLocked && !overrideLocked && !samePrice(existingOverridePrice, req.OverridePrice) {
-		return nil, ErrPromotedModelPriceLocked
-	}
-
-	if _, err := validatePromotedModelEntry(
-		existing.QuotaPolicyID,
-		existing.Model,
-		existing.ChannelID,
-		req.OverridePrice,
-		req.EffectiveAt,
-		req.ExpiresAt,
-	); err != nil {
-		return nil, err
-	}
-
-	overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
-	if err != nil {
-		return nil, err
-	}
-
-	before := existing
-	existing.DisplayName = req.DisplayName
-	existing.RecommendBadge = req.RecommendBadge
-	existing.SortOrder = req.SortOrder
-	existing.Enabled = req.Enabled
-	existing.OverridePrice = overrideCommercialPrice
-	existing.DiscountRate = req.DiscountRate
-	existing.PriceLocked = req.PriceLocked
-	existing.EffectiveAt = req.EffectiveAt
-	existing.ExpiresAt = req.ExpiresAt
-	existing.Version++
-	existing.UpdatedBy = op.ID
-
-	if err := model.DB.Save(&existing).Error; err != nil {
-		return nil, err
-	}
-
-	action := entmodels.PromotedModelAuditActionUpdate
-	if overrideLocked && before.PriceLocked && !sameCommercialPrice(before.OverridePrice, existing.OverridePrice) {
-		action = entmodels.PromotedModelAuditActionForceLockedOverride
-	} else if before.PriceLocked != existing.PriceLocked {
-		if existing.PriceLocked {
-			action = entmodels.PromotedModelAuditActionPriceLock
-		} else {
-			action = entmodels.PromotedModelAuditActionPriceUnlock
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&existing, id).Error; err != nil {
+			return err
 		}
-	} else if !sameCommercialPrice(before.OverridePrice, existing.OverridePrice) {
-		action = entmodels.PromotedModelAuditActionPriceChange
-	}
 
-	if err := writePromotedModelAudit(&existing, action, &before, &existing, op, "updated promoted model"); err != nil {
+		existingOverridePrice, err := modelPriceFromCommercialPrice(existing.OverridePrice)
+		if err != nil {
+			return err
+		}
+
+		if existing.PriceLocked && !overrideLocked && !samePrice(existingOverridePrice, req.OverridePrice) {
+			return ErrPromotedModelPriceLocked
+		}
+
+		if _, err := validatePromotedModelEntry(
+			tx,
+			existing.QuotaPolicyID,
+			existing.Model,
+			existing.ChannelID,
+			req.OverridePrice,
+			req.EffectiveAt,
+			req.ExpiresAt,
+		); err != nil {
+			return err
+		}
+
+		overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
+		if err != nil {
+			return err
+		}
+
+		before := existing
+		existing.DisplayName = req.DisplayName
+		existing.RecommendBadge = req.RecommendBadge
+		existing.SortOrder = req.SortOrder
+		existing.Enabled = req.Enabled
+		existing.OverridePrice = overrideCommercialPrice
+		existing.DiscountRate = req.DiscountRate
+		existing.PriceLocked = req.PriceLocked
+		existing.EffectiveAt = req.EffectiveAt
+		existing.ExpiresAt = req.ExpiresAt
+		existing.Version++
+		existing.UpdatedBy = op.ID
+
+		if err := tx.Save(&existing).Error; err != nil {
+			return err
+		}
+
+		action := entmodels.PromotedModelAuditActionUpdate
+		if overrideLocked && before.PriceLocked && !sameCommercialPrice(before.OverridePrice, existing.OverridePrice) {
+			action = entmodels.PromotedModelAuditActionForceLockedOverride
+		} else if before.PriceLocked != existing.PriceLocked {
+			if existing.PriceLocked {
+				action = entmodels.PromotedModelAuditActionPriceLock
+			} else {
+				action = entmodels.PromotedModelAuditActionPriceUnlock
+			}
+		} else if !sameCommercialPrice(before.OverridePrice, existing.OverridePrice) {
+			action = entmodels.PromotedModelAuditActionPriceChange
+		}
+
+		return writePromotedModelAudit(tx, &existing, action, &before, &existing, op, "updated promoted model")
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -304,23 +316,26 @@ func UpdatePromotedModelEntry(
 }
 
 func DeletePromotedModelEntry(id int, op AuditOperator) error {
-	var existing entmodels.PromotedModelPolicy
-	if err := model.DB.First(&existing, id).Error; err != nil {
-		return err
-	}
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		var existing entmodels.PromotedModelPolicy
+		if err := tx.First(&existing, id).Error; err != nil {
+			return err
+		}
 
-	if err := model.DB.Delete(&existing).Error; err != nil {
-		return err
-	}
+		if err := tx.Delete(&existing).Error; err != nil {
+			return err
+		}
 
-	return writePromotedModelAudit(
-		&existing,
-		entmodels.PromotedModelAuditActionDelete,
-		&existing,
-		nil,
-		op,
-		"deleted promoted model",
-	)
+		return writePromotedModelAudit(
+			tx,
+			&existing,
+			entmodels.PromotedModelAuditActionDelete,
+			&existing,
+			nil,
+			op,
+			"deleted promoted model",
+		)
+	})
 }
 
 func RollbackPromotedModelEntry(
@@ -329,63 +344,67 @@ func RollbackPromotedModelEntry(
 	op AuditOperator,
 ) (*entmodels.PromotedModelPolicy, error) {
 	var current entmodels.PromotedModelPolicy
-	if err := model.DB.First(&current, id).Error; err != nil {
-		return nil, err
-	}
-
-	var audits []entmodels.PromotedModelPolicyAudit
-	if err := model.DB.
-		Where("promoted_model_policy_id = ?", id).
-		Order("id ASC").
-		Find(&audits).Error; err != nil {
-		return nil, err
-	}
-
-	var target *entmodels.PromotedModelPolicy
-	for i := range audits {
-		if audits[i].After == "" {
-			continue
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&current, id).Error; err != nil {
+			return err
 		}
 
-		var snapshot entmodels.PromotedModelPolicy
-		if err := json.Unmarshal([]byte(audits[i].After), &snapshot); err != nil {
-			return nil, err
+		var audits []entmodels.PromotedModelPolicyAudit
+		if err := tx.
+			Where("promoted_model_policy_id = ?", id).
+			Order("id ASC").
+			Find(&audits).Error; err != nil {
+			return err
 		}
 
-		if snapshot.Version == version {
-			target = &snapshot
-			break
+		var target *entmodels.PromotedModelPolicy
+		for i := range audits {
+			if audits[i].After == "" {
+				continue
+			}
+
+			var snapshot entmodels.PromotedModelPolicy
+			if err := json.Unmarshal([]byte(audits[i].After), &snapshot); err != nil {
+				return err
+			}
+
+			if snapshot.Version == version {
+				target = &snapshot
+				break
+			}
 		}
-	}
-	if target == nil {
-		return nil, gorm.ErrRecordNotFound
-	}
+		if target == nil {
+			return gorm.ErrRecordNotFound
+		}
 
-	before := current
-	current.DisplayName = target.DisplayName
-	current.RecommendBadge = target.RecommendBadge
-	current.SortOrder = target.SortOrder
-	current.Enabled = target.Enabled
-	current.OverridePrice = target.OverridePrice
-	current.DiscountRate = target.DiscountRate
-	current.PriceLocked = target.PriceLocked
-	current.EffectiveAt = target.EffectiveAt
-	current.ExpiresAt = target.ExpiresAt
-	current.Version++
-	current.UpdatedBy = op.ID
+		before := current
+		current.DisplayName = target.DisplayName
+		current.RecommendBadge = target.RecommendBadge
+		current.SortOrder = target.SortOrder
+		current.Enabled = target.Enabled
+		current.OverridePrice = target.OverridePrice
+		current.DiscountRate = target.DiscountRate
+		current.PriceLocked = target.PriceLocked
+		current.EffectiveAt = target.EffectiveAt
+		current.ExpiresAt = target.ExpiresAt
+		current.Version++
+		current.UpdatedBy = op.ID
 
-	if err := model.DB.Save(&current).Error; err != nil {
-		return nil, err
-	}
+		if err := tx.Save(&current).Error; err != nil {
+			return err
+		}
 
-	if err := writePromotedModelAudit(
-		&current,
-		entmodels.PromotedModelAuditActionRollback,
-		&before,
-		&current,
-		op,
-		"rolled back promoted model",
-	); err != nil {
+		return writePromotedModelAudit(
+			tx,
+			&current,
+			entmodels.PromotedModelAuditActionRollback,
+			&before,
+			&current,
+			op,
+			"rolled back promoted model",
+		)
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -393,6 +412,7 @@ func RollbackPromotedModelEntry(
 }
 
 func writePromotedModelAudit(
+	db *gorm.DB,
 	entry *entmodels.PromotedModelPolicy,
 	action string,
 	before,
@@ -417,7 +437,7 @@ func writePromotedModelAudit(
 		afterJSON = string(data)
 	}
 
-	return model.DB.Create(&entmodels.PromotedModelPolicyAudit{
+	return db.Create(&entmodels.PromotedModelPolicyAudit{
 		PromotedModelPolicyID: entry.ID,
 		QuotaPolicyID:         entry.QuotaPolicyID,
 		Action:                action,

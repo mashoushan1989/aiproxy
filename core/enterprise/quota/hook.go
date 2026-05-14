@@ -36,7 +36,8 @@ func CheckQuotaTier(
 		}
 		if policy != nil {
 			usageRatio := computeGroupUsageRatio(group.ID, policy)
-			effModel, rpmMul, tpmMul, blocked := applyPolicyTiers(policy, usageRatio, requestModel)
+			price := effectivePriceForQuotaBlocking(group, requestModel)
+			effModel, rpmMul, tpmMul, blocked := applyPolicyTiersWithPrice(policy, usageRatio, requestModel, price)
 
 			policyPeriodType := PolicyPeriodTypeToTokenPeriodType(policy.PeriodType)
 			tier := ComputeTier(policy, usageRatio, blocked)
@@ -78,7 +79,8 @@ func CheckQuotaTier(
 	}
 
 	usageRatio := computeGroupUsageRatio(group.ID, policy)
-	return applyPolicyTiers(policy, usageRatio, requestModel)
+	price := effectivePriceForQuotaBlocking(group, requestModel)
+	return applyPolicyTiersWithPrice(policy, usageRatio, requestModel, price)
 }
 
 // computeGroupUsageRatio returns the fraction of the period quota consumed at Group level.
@@ -124,6 +126,32 @@ func tierThreshold(policy *models.QuotaPolicy, tier int) float64 {
 
 // applyPolicyTiers applies the tiered policy logic based on a pre-computed usage ratio.
 func applyPolicyTiers(policy *models.QuotaPolicy, usageRatio float64, requestModel string) (string, float64, float64, bool) {
+	return applyPolicyTiersWithPrice(policy, usageRatio, requestModel, fallbackModelPrice(requestModel))
+}
+
+func fallbackModelPrice(requestModel string) model.Price {
+	if mc := model.LoadModelCaches(); mc != nil && mc.ModelConfig != nil {
+		if cfg, ok := mc.ModelConfig.GetModelConfig(requestModel); ok {
+			return cfg.Price
+		}
+	}
+	return model.Price{}
+}
+
+func effectivePriceForQuotaBlocking(group model.GroupCache, requestModel string) model.Price {
+	fallback := fallbackModelPrice(requestModel)
+	if groupModelConfig, ok := group.ModelConfigs[requestModel]; ok && groupModelConfig.OverridePrice {
+		return groupModelConfig.Price
+	}
+	price, err := ResolvePromotedModelPrice(group, requestModel, fallback)
+	if err != nil {
+		log.Errorf("failed to resolve promoted model price for quota blocking, group=%s model=%s: %v", group.ID, requestModel, err)
+		return fallback
+	}
+	return price
+}
+
+func applyPolicyTiersWithPrice(policy *models.QuotaPolicy, usageRatio float64, requestModel string, price model.Price) (string, float64, float64, bool) {
 	// Guard against zero or no-limit policy
 	if policy.PeriodQuota <= 0 {
 		return requestModel, 1.0, 1.0, false
@@ -131,13 +159,8 @@ func applyPolicyTiers(policy *models.QuotaPolicy, usageRatio float64, requestMod
 
 	// Resolve model pricing once for price-based blocking.
 	// Normalize to ¥/M tokens so thresholds match the "my access" model price display.
-	var inputPrice, outputPrice float64
-	if mc := model.LoadModelCaches(); mc != nil && mc.ModelConfig != nil {
-		if cfg, ok := mc.ModelConfig.GetModelConfig(requestModel); ok {
-			inputPrice = float64(cfg.Price.InputPrice) / float64(cfg.Price.GetInputPriceUnit()) * 1e6
-			outputPrice = float64(cfg.Price.OutputPrice) / float64(cfg.Price.GetOutputPriceUnit()) * 1e6
-		}
-	}
+	inputPrice := float64(price.InputPrice) / float64(price.GetInputPriceUnit()) * 1e6
+	outputPrice := float64(price.OutputPrice) / float64(price.GetOutputPriceUnit()) * 1e6
 
 	switch {
 	case usageRatio >= policy.Tier2Ratio:

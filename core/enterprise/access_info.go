@@ -328,24 +328,13 @@ func modelPriceFromPromotedCommercialPrice(price models.CommercialPrice) (model.
 }
 
 func activePromotedModelPolicies(policyID int) (map[string]models.PromotedModelPolicy, error) {
-	if policyID <= 0 {
-		return nil, nil
-	}
-
-	var entries []models.PromotedModelPolicy
-	if err := model.DB.
-		Where("quota_policy_id = ? AND enabled = ?", policyID, true).
-		Order("sort_order ASC, id DESC").
-		Find(&entries).Error; err != nil {
+	entries, err := quota.ActivePromotedModelEntries(policyID, "", time.Now())
+	if err != nil {
 		return nil, err
 	}
 
-	now := time.Now()
 	promoted := make(map[string]models.PromotedModelPolicy, len(entries))
 	for _, entry := range entries {
-		if !entry.ActiveAt(now) {
-			continue
-		}
 		if _, exists := promoted[entry.Model]; exists {
 			continue
 		}

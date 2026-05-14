@@ -24,22 +24,53 @@ func ResolvePromotedModelPrice(group model.GroupCache, requestModel string, fall
 		return fallback, nil
 	}
 
-	var entry entmodels.PromotedModelPolicy
-	if err := model.DB.
-		Where("quota_policy_id = ? AND model = ? AND enabled = ?", policy.ID, requestModel, true).
-		Order("sort_order ASC, id DESC").
-		First(&entry).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fallback, nil
-		}
+	entry, ok, err := ActivePromotedModelEntry(policy.ID, requestModel, time.Now())
+	if err != nil {
 		return model.Price{}, err
 	}
-
-	if !entry.ActiveAt(time.Now()) {
+	if !ok {
 		return fallback, nil
 	}
 
 	return modelPriceFromCommercialPrice(entry.OverridePrice)
+}
+
+func ActivePromotedModelEntry(policyID int, modelName string, now time.Time) (entmodels.PromotedModelPolicy, bool, error) {
+	entries, err := ActivePromotedModelEntries(policyID, modelName, now)
+	if err != nil {
+		return entmodels.PromotedModelPolicy{}, false, err
+	}
+	if len(entries) == 0 {
+		return entmodels.PromotedModelPolicy{}, false, nil
+	}
+	return entries[0], true, nil
+}
+
+func ActivePromotedModelEntries(policyID int, modelName string, now time.Time) ([]entmodels.PromotedModelPolicy, error) {
+	if policyID <= 0 {
+		return nil, nil
+	}
+
+	query := model.DB.
+		Where("quota_policy_id = ? AND enabled = ?", policyID, true).
+		Order("sort_order ASC, id DESC")
+	if modelName != "" {
+		query = query.Where("model = ?", modelName)
+	}
+
+	var entries []entmodels.PromotedModelPolicy
+	if err := query.Find(&entries).Error; err != nil {
+		return nil, err
+	}
+
+	active := make([]entmodels.PromotedModelPolicy, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ActiveAt(now) {
+			active = append(active, entry)
+		}
+	}
+
+	return active, nil
 }
 
 func effectiveQuotaPolicyForGroup(ctx context.Context, groupID string) (*entmodels.QuotaPolicy, error) {

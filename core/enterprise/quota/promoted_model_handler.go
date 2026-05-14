@@ -65,6 +65,75 @@ func requirePromotedModelEntryInPolicy(c *gin.Context) (int, int, bool) {
 	return policyID, entryID, true
 }
 
+type promotedModelPolicyResponse struct {
+	ID             int                    `json:"id"`
+	CreatedAt      any                    `json:"created_at"`
+	UpdatedAt      any                    `json:"updated_at"`
+	QuotaPolicyID  int                    `json:"quota_policy_id"`
+	QuotaPolicy    *entmodels.QuotaPolicy `json:"quota_policy"`
+	Model          string                 `json:"model"`
+	ChannelID      int                    `json:"channel_id"`
+	DisplayName    string                 `json:"display_name"`
+	RecommendBadge string                 `json:"recommend_badge"`
+	SortOrder      int                    `json:"sort_order"`
+	Enabled        bool                   `json:"enabled"`
+	BasePrice      model.Price            `json:"base_price"`
+	OverridePrice  model.Price            `json:"override_price"`
+	DiscountRate   float64                `json:"discount_rate"`
+	PriceLocked    bool                   `json:"price_locked"`
+	EffectiveAt    any                    `json:"effective_at"`
+	ExpiresAt      any                    `json:"expires_at"`
+	Version        int                    `json:"version"`
+	CreatedBy      string                 `json:"created_by"`
+	UpdatedBy      string                 `json:"updated_by"`
+}
+
+func promotedModelResponse(entry entmodels.PromotedModelPolicy) (promotedModelPolicyResponse, error) {
+	basePrice, err := modelPriceFromCommercialPrice(entry.BasePrice)
+	if err != nil {
+		return promotedModelPolicyResponse{}, err
+	}
+	overridePrice, err := modelPriceFromCommercialPrice(entry.OverridePrice)
+	if err != nil {
+		return promotedModelPolicyResponse{}, err
+	}
+
+	return promotedModelPolicyResponse{
+		ID:             entry.ID,
+		CreatedAt:      entry.CreatedAt,
+		UpdatedAt:      entry.UpdatedAt,
+		QuotaPolicyID:  entry.QuotaPolicyID,
+		QuotaPolicy:    entry.QuotaPolicy,
+		Model:          entry.Model,
+		ChannelID:      entry.ChannelID,
+		DisplayName:    entry.DisplayName,
+		RecommendBadge: entry.RecommendBadge,
+		SortOrder:      entry.SortOrder,
+		Enabled:        entry.Enabled,
+		BasePrice:      basePrice,
+		OverridePrice:  overridePrice,
+		DiscountRate:   entry.DiscountRate,
+		PriceLocked:    entry.PriceLocked,
+		EffectiveAt:    entry.EffectiveAt,
+		ExpiresAt:      entry.ExpiresAt,
+		Version:        entry.Version,
+		CreatedBy:      entry.CreatedBy,
+		UpdatedBy:      entry.UpdatedBy,
+	}, nil
+}
+
+func promotedModelResponses(entries []entmodels.PromotedModelPolicy) ([]promotedModelPolicyResponse, error) {
+	responses := make([]promotedModelPolicyResponse, 0, len(entries))
+	for _, entry := range entries {
+		response, err := promotedModelResponse(entry)
+		if err != nil {
+			return nil, err
+		}
+		responses = append(responses, response)
+	}
+	return responses, nil
+}
+
 func ListPromotedModels(c *gin.Context) {
 	policyID, ok := policyIDParam(c)
 	if !ok {
@@ -80,7 +149,13 @@ func ListPromotedModels(c *gin.Context) {
 		return
 	}
 
-	middleware.SuccessResponse(c, gin.H{"entries": entries})
+	responses, err := promotedModelResponses(entries)
+	if err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	middleware.SuccessResponse(c, gin.H{"entries": responses})
 }
 
 func CreatePromotedModel(c *gin.Context) {
@@ -103,7 +178,13 @@ func CreatePromotedModel(c *gin.Context) {
 		return
 	}
 
-	middleware.SuccessResponse(c, entry)
+	response, err := promotedModelResponse(*entry)
+	if err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	middleware.SuccessResponse(c, response)
 }
 
 func UpdatePromotedModel(c *gin.Context) {
@@ -136,7 +217,13 @@ func UpdatePromotedModel(c *gin.Context) {
 		return
 	}
 
-	middleware.SuccessResponse(c, entry)
+	response, err := promotedModelResponse(*entry)
+	if err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	middleware.SuccessResponse(c, response)
 }
 
 func DeletePromotedModel(c *gin.Context) {
@@ -177,7 +264,13 @@ func RollbackPromotedModel(c *gin.Context) {
 		return
 	}
 
-	middleware.SuccessResponse(c, entry)
+	response, err := promotedModelResponse(*entry)
+	if err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	middleware.SuccessResponse(c, response)
 }
 
 func ListPromotedModelAudits(c *gin.Context) {
