@@ -228,29 +228,31 @@ func compareModelConfigs(local *model.ModelConfig, remote *PPIOModel) []string {
 	var changes []string
 
 	// Compare prices
-	remoteInputPrice := remote.GetInputPricePerToken()
-	remoteOutputPrice := remote.GetOutputPricePerToken()
+	if !synccommon.IsSyncPriceLocked(local.Config) {
+		remoteInputPrice := remote.GetInputPricePerToken()
+		remoteOutputPrice := remote.GetOutputPricePerToken()
 
-	if !floatEquals(float64(local.Price.InputPrice), remoteInputPrice) {
-		changes = append(
-			changes,
-			fmt.Sprintf(
-				"input_price: %.8f → %.8f",
-				float64(local.Price.InputPrice),
-				remoteInputPrice,
-			),
-		)
-	}
+		if !floatEquals(float64(local.Price.InputPrice), remoteInputPrice) {
+			changes = append(
+				changes,
+				fmt.Sprintf(
+					"input_price: %.8f → %.8f",
+					float64(local.Price.InputPrice),
+					remoteInputPrice,
+				),
+			)
+		}
 
-	if !floatEquals(float64(local.Price.OutputPrice), remoteOutputPrice) {
-		changes = append(
-			changes,
-			fmt.Sprintf(
-				"output_price: %.8f → %.8f",
-				float64(local.Price.OutputPrice),
-				remoteOutputPrice,
-			),
-		)
+		if !floatEquals(float64(local.Price.OutputPrice), remoteOutputPrice) {
+			changes = append(
+				changes,
+				fmt.Sprintf(
+					"output_price: %.8f → %.8f",
+					float64(local.Price.OutputPrice),
+					remoteOutputPrice,
+				),
+			)
+		}
 	}
 
 	// Compare config fields (normalize both through map[string]any to ensure
@@ -273,52 +275,54 @@ func compareModelConfigsV2(local *model.ModelConfig, remote *PPIOModelV2) []stri
 	var changes []string
 
 	// Compare prices
-	remoteInputPrice := remote.GetInputPricePerToken()
-	remoteOutputPrice := remote.GetOutputPricePerToken()
+	if !synccommon.IsSyncPriceLocked(local.Config) {
+		remoteInputPrice := remote.GetInputPricePerToken()
+		remoteOutputPrice := remote.GetOutputPricePerToken()
 
-	if !floatEquals(float64(local.Price.InputPrice), remoteInputPrice) {
-		changes = append(
-			changes,
-			fmt.Sprintf(
-				"input_price: %.12f → %.12f",
-				float64(local.Price.InputPrice),
-				remoteInputPrice,
-			),
-		)
-	}
+		if !floatEquals(float64(local.Price.InputPrice), remoteInputPrice) {
+			changes = append(
+				changes,
+				fmt.Sprintf(
+					"input_price: %.12f → %.12f",
+					float64(local.Price.InputPrice),
+					remoteInputPrice,
+				),
+			)
+		}
 
-	if !floatEquals(float64(local.Price.OutputPrice), remoteOutputPrice) {
-		changes = append(
-			changes,
-			fmt.Sprintf(
-				"output_price: %.12f → %.12f",
-				float64(local.Price.OutputPrice),
-				remoteOutputPrice,
-			),
-		)
-	}
+		if !floatEquals(float64(local.Price.OutputPrice), remoteOutputPrice) {
+			changes = append(
+				changes,
+				fmt.Sprintf(
+					"output_price: %.12f → %.12f",
+					float64(local.Price.OutputPrice),
+					remoteOutputPrice,
+				),
+			)
+		}
 
-	// Compare tiered billing (count effective tiers, excluding degenerate ones
-	// that are skipped during sync — see setPriceFromV2Model)
-	remoteTieredCount := 0
-	if remote.IsTieredBilling {
-		remoteTieredCount = countEffectiveTiers(remote.TieredBillingConfigs)
-	}
+		// Compare tiered billing (count effective tiers, excluding degenerate ones
+		// that are skipped during sync — see setPriceFromV2Model)
+		remoteTieredCount := 0
+		if remote.IsTieredBilling {
+			remoteTieredCount = countEffectiveTiers(remote.TieredBillingConfigs)
+		}
 
-	localTieredCount := len(local.Price.ConditionalPrices)
-	if localTieredCount != remoteTieredCount {
-		changes = append(
-			changes,
-			fmt.Sprintf("tiered_billing_count: %d → %d", localTieredCount, remoteTieredCount),
-		)
-	}
+		localTieredCount := len(local.Price.ConditionalPrices)
+		if localTieredCount != remoteTieredCount {
+			changes = append(
+				changes,
+				fmt.Sprintf("tiered_billing_count: %d → %d", localTieredCount, remoteTieredCount),
+			)
+		}
 
-	// Compare cache pricing
-	remoteCacheRead := remote.GetCacheReadPricePerToken()
-	if remote.SupportPromptCache &&
-		!floatEquals(float64(local.Price.CachedPrice), remoteCacheRead) {
-		changes = append(changes, fmt.Sprintf("cache_read_price: %.12f → %.12f",
-			float64(local.Price.CachedPrice), remoteCacheRead))
+		// Compare cache pricing
+		remoteCacheRead := remote.GetCacheReadPricePerToken()
+		if remote.SupportPromptCache &&
+			!floatEquals(float64(local.Price.CachedPrice), remoteCacheRead) {
+			changes = append(changes, fmt.Sprintf("cache_read_price: %.12f → %.12f",
+				float64(local.Price.CachedPrice), remoteCacheRead))
+		}
 	}
 
 	// Compare config fields (normalize both through map[string]any to ensure

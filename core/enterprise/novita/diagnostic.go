@@ -178,45 +178,47 @@ func compareModelConfigsV2(
 ) []string {
 	var changes []string
 
-	newInputPrice := remote.GetInputPricePerToken() * exchangeRate
-	if !floatEquals(float64(local.Price.InputPrice), newInputPrice) {
-		changes = append(changes, fmt.Sprintf(
-			"input_price: %.8f → %.8f",
-			float64(local.Price.InputPrice),
-			newInputPrice,
-		))
-	}
+	if !synccommon.IsSyncPriceLocked(local.Config) {
+		newInputPrice := remote.GetInputPricePerToken() * exchangeRate
+		if !floatEquals(float64(local.Price.InputPrice), newInputPrice) {
+			changes = append(changes, fmt.Sprintf(
+				"input_price: %.8f → %.8f",
+				float64(local.Price.InputPrice),
+				newInputPrice,
+			))
+		}
 
-	newOutputPrice := remote.GetOutputPricePerToken() * exchangeRate
-	if !floatEquals(float64(local.Price.OutputPrice), newOutputPrice) {
-		changes = append(changes, fmt.Sprintf(
-			"output_price: %.8f → %.8f",
-			float64(local.Price.OutputPrice),
-			newOutputPrice,
-		))
-	}
+		newOutputPrice := remote.GetOutputPricePerToken() * exchangeRate
+		if !floatEquals(float64(local.Price.OutputPrice), newOutputPrice) {
+			changes = append(changes, fmt.Sprintf(
+				"output_price: %.8f → %.8f",
+				float64(local.Price.OutputPrice),
+				newOutputPrice,
+			))
+		}
 
-	// Compare tiered billing (count effective tiers, excluding degenerate ones
-	// that are skipped during sync — see setPriceFromV2Model)
-	remoteTieredCount := 0
-	if remote.IsTieredBilling {
-		remoteTieredCount = countEffectiveTiers(remote.TieredBillingConfigs)
-	}
+		// Compare tiered billing (count effective tiers, excluding degenerate ones
+		// that are skipped during sync — see setPriceFromV2Model)
+		remoteTieredCount := 0
+		if remote.IsTieredBilling {
+			remoteTieredCount = countEffectiveTiers(remote.TieredBillingConfigs)
+		}
 
-	localTieredCount := len(local.Price.ConditionalPrices)
-	if localTieredCount != remoteTieredCount {
-		changes = append(
-			changes,
-			fmt.Sprintf("tiered_billing_count: %d → %d", localTieredCount, remoteTieredCount),
-		)
-	}
+		localTieredCount := len(local.Price.ConditionalPrices)
+		if localTieredCount != remoteTieredCount {
+			changes = append(
+				changes,
+				fmt.Sprintf("tiered_billing_count: %d → %d", localTieredCount, remoteTieredCount),
+			)
+		}
 
-	// Compare cache pricing
-	remoteCacheRead := remote.GetCacheReadPricePerToken() * exchangeRate
-	if remote.SupportPromptCache &&
-		!floatEquals(float64(local.Price.CachedPrice), remoteCacheRead) {
-		changes = append(changes, fmt.Sprintf("cache_read_price: %.8f → %.8f",
-			float64(local.Price.CachedPrice), remoteCacheRead))
+		// Compare cache pricing
+		remoteCacheRead := remote.GetCacheReadPricePerToken() * exchangeRate
+		if remote.SupportPromptCache &&
+			!floatEquals(float64(local.Price.CachedPrice), remoteCacheRead) {
+			changes = append(changes, fmt.Sprintf("cache_read_price: %.8f → %.8f",
+				float64(local.Price.CachedPrice), remoteCacheRead))
+		}
 	}
 
 	if !configMapsEqual(synccommon.ComparableModelConfig(local.Config), buildConfigFromV2Model(remote)) {
