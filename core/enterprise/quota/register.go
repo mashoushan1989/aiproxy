@@ -18,6 +18,7 @@ func RegisterRoutes(group *gin.RouterGroup, permMW map[string]gin.HandlerFunc) {
 	policies.GET("", ListPolicies)
 	policies.GET("/:id", GetPolicy)
 	policies.GET("/:id/promoted-models", ListPromotedModels)
+	policies.GET("/:id/promoted-model-candidates", ListPromotedModelCandidates)
 	policies.GET("/:id/promoted-models/audit", ListPromotedModelAudits)
 
 	bind := group.Group("/quota", quotaViewMw)

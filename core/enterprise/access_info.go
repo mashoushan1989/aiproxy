@@ -48,6 +48,8 @@ type ModelAccessInfo struct {
 	MaxContext         int64        `json:"max_context,omitempty"`
 	MaxOutput          int64        `json:"max_output,omitempty"`
 	IsPromoted         bool         `json:"is_promoted,omitempty"`
+	DisplayName        string       `json:"display_name,omitempty"`
+	SortOrder          int          `json:"sort_order,omitempty"`
 	RecommendBadge     string       `json:"recommend_badge,omitempty"`
 	CommercialLocked   bool         `json:"commercial_locked,omitempty"`
 	ReferenceChannel   int          `json:"reference_channel,omitempty"`
@@ -589,6 +591,8 @@ func GetMyAccess(c *gin.Context) {
 			}
 
 			info.IsPromoted = true
+			info.DisplayName = promotedEntry.DisplayName
+			info.SortOrder = promotedEntry.SortOrder
 			info.RecommendBadge = promotedEntry.RecommendBadge
 			info.CommercialLocked = promotedEntry.PriceLocked
 			info.ReferenceChannel = promotedEntry.ChannelID
@@ -625,6 +629,9 @@ func GetMyAccess(c *gin.Context) {
 		sort.Slice(models, func(i, j int) bool {
 			if models[i].IsPromoted != models[j].IsPromoted {
 				return models[i].IsPromoted
+			}
+			if models[i].IsPromoted && models[i].SortOrder != models[j].SortOrder {
+				return models[i].SortOrder < models[j].SortOrder
 			}
 			return models[i].Model < models[j].Model
 		})

@@ -81,6 +81,7 @@ export interface PromotedModelPolicy {
     enabled: boolean
     base_price: ModelPrice
     override_price: ModelPrice
+    pricing_mode: PromotedPricingMode
     discount_rate: number
     price_locked: boolean
     effective_at?: string | null
@@ -90,6 +91,8 @@ export interface PromotedModelPolicy {
     updated_by?: string
 }
 
+export type PromotedPricingMode = 'manual' | 'discount'
+
 export interface PromotedModelPolicyInput {
     model: string
     channel_id?: number
@@ -98,10 +101,27 @@ export interface PromotedModelPolicyInput {
     sort_order?: number
     enabled: boolean
     override_price: ModelPrice
+    pricing_mode: PromotedPricingMode
     discount_rate?: number
     price_locked: boolean
     effective_at?: string | null
     expires_at?: string | null
+}
+
+export interface PromotedModelCandidate {
+    model: string
+    type: number
+    type_name: string
+    base_price: ModelPrice
+    channels: Array<{
+        id: number
+        name: string
+        type: number
+    }>
+}
+
+export interface PromotedModelCandidatesResponse {
+    candidates: PromotedModelCandidate[]
 }
 
 export interface PromotedModelListResponse {
@@ -593,6 +613,7 @@ export interface MyTokenInfo {
 
 export interface ModelAccessInfo {
     model: string
+    display_name?: string
     type: number
     type_name: string
     rpm: number
@@ -608,6 +629,7 @@ export interface ModelAccessInfo {
     commercial_locked?: boolean
     price_locked?: boolean
     reference_channel?: number
+    sort_order?: number
     base_price?: ModelPrice
 }
 
@@ -879,6 +901,16 @@ export const enterpriseApi = {
 
     listPromotedModels: (policyId: number): Promise<PromotedModelListResponse> => {
         return get<PromotedModelListResponse>(`/enterprise/quota/policies/${policyId}/promoted-models`)
+    },
+
+    listPromotedModelCandidates: (
+        policyId: number,
+        params?: { keyword?: string; channel_id?: number },
+    ): Promise<PromotedModelCandidatesResponse> => {
+        const query: Record<string, string> = {}
+        if (params?.keyword) query.keyword = params.keyword
+        if (params?.channel_id) query.channel_id = String(params.channel_id)
+        return get<PromotedModelCandidatesResponse>(`/enterprise/quota/policies/${policyId}/promoted-model-candidates`, { params: query })
     },
 
     listPromotedModelAudits: (policyId: number): Promise<PromotedModelAuditResponse> => {

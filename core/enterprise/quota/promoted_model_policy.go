@@ -29,6 +29,7 @@ type CreatePromotedModelEntryRequest struct {
 	SortOrder      int         `json:"sort_order"`
 	Enabled        bool        `json:"enabled"`
 	OverridePrice  model.Price `json:"override_price"`
+	PricingMode    string      `json:"pricing_mode"`
 	DiscountRate   float64     `json:"discount_rate"`
 	PriceLocked    bool        `json:"price_locked"`
 	EffectiveAt    *time.Time  `json:"effective_at"`
@@ -41,6 +42,7 @@ type UpdatePromotedModelEntryRequest struct {
 	SortOrder      int         `json:"sort_order"`
 	Enabled        bool        `json:"enabled"`
 	OverridePrice  model.Price `json:"override_price"`
+	PricingMode    string      `json:"pricing_mode"`
 	DiscountRate   float64     `json:"discount_rate"`
 	PriceLocked    bool        `json:"price_locked"`
 	EffectiveAt    *time.Time  `json:"effective_at"`
@@ -113,6 +115,65 @@ func modelPriceFromCommercialPrice(price entmodels.CommercialPrice) (model.Price
 		}
 	}
 	return out, nil
+}
+
+func normalizedPromotedModelPricingMode(pricingMode string) (string, error) {
+	if pricingMode == "" {
+		return entmodels.PromotedModelPricingModeManual, nil
+	}
+
+	switch pricingMode {
+	case entmodels.PromotedModelPricingModeManual, entmodels.PromotedModelPricingModeDiscount:
+		return pricingMode, nil
+	default:
+		return "", errors.New("pricing_mode must be manual or discount")
+	}
+}
+
+func discountedPromotedModelPrice(basePrice model.Price, discountRate float64) model.Price {
+	price := basePrice
+	apply := func(value model.ZeroNullFloat64) model.ZeroNullFloat64 {
+		return model.ZeroNullFloat64(float64(value) * discountRate)
+	}
+
+	price.PerRequestPrice = apply(price.PerRequestPrice)
+	price.InputPrice = apply(price.InputPrice)
+	price.ImageInputPrice = apply(price.ImageInputPrice)
+	price.AudioInputPrice = apply(price.AudioInputPrice)
+	price.OutputPrice = apply(price.OutputPrice)
+	price.ImageOutputPrice = apply(price.ImageOutputPrice)
+	price.ThinkingModeOutputPrice = apply(price.ThinkingModeOutputPrice)
+	price.CachedPrice = apply(price.CachedPrice)
+	price.CacheCreationPrice = apply(price.CacheCreationPrice)
+	price.WebSearchPrice = apply(price.WebSearchPrice)
+
+	for i := range price.ConditionalPrices {
+		price.ConditionalPrices[i].Price = discountedPromotedModelPrice(
+			price.ConditionalPrices[i].Price,
+			discountRate,
+		)
+	}
+
+	return price
+}
+
+func promotedModelOverridePrice(
+	basePrice model.Price,
+	overridePrice model.Price,
+	pricingMode string,
+	discountRate float64,
+) (model.Price, string, error) {
+	normalizedMode, err := normalizedPromotedModelPricingMode(pricingMode)
+	if err != nil {
+		return model.Price{}, "", err
+	}
+	if normalizedMode == entmodels.PromotedModelPricingModeDiscount {
+		if discountRate <= 0 || discountRate > 1 {
+			return model.Price{}, "", errors.New("discount_rate must be greater than 0 and less than or equal to 1")
+		}
+		return discountedPromotedModelPrice(basePrice, discountRate), normalizedMode, nil
+	}
+	return overridePrice, normalizedMode, nil
 }
 
 func validatePromotedModelEntry(
@@ -193,7 +254,22 @@ func CreatePromotedModelEntry(
 			return err
 		}
 
-		overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
+		overridePrice, pricingMode, err := promotedModelOverridePrice(
+			basePrice,
+			req.OverridePrice,
+			req.PricingMode,
+			req.DiscountRate,
+		)
+		if err != nil {
+			return err
+		}
+
+		discountRate := req.DiscountRate
+		if pricingMode == entmodels.PromotedModelPricingModeManual {
+			discountRate = 0
+		}
+
+		overrideCommercialPrice, err := commercialPriceFromModelPrice(overridePrice)
 		if err != nil {
 			return err
 		}
@@ -208,7 +284,8 @@ func CreatePromotedModelEntry(
 			Enabled:        req.Enabled,
 			BasePrice:      baseCommercialPrice,
 			OverridePrice:  overrideCommercialPrice,
-			DiscountRate:   req.DiscountRate,
+			PricingMode:    pricingMode,
+			DiscountRate:   discountRate,
 			PriceLocked:    req.PriceLocked,
 			EffectiveAt:    req.EffectiveAt,
 			ExpiresAt:      req.ExpiresAt,
@@ -255,7 +332,22 @@ func UpdatePromotedModelEntry(
 			return err
 		}
 
-		if existing.PriceLocked && !overrideLocked && !samePrice(existingOverridePrice, req.OverridePrice) {
+		basePrice, err := modelPriceFromCommercialPrice(existing.BasePrice)
+		if err != nil {
+			return err
+		}
+
+		requestOverridePrice, pricingMode, err := promotedModelOverridePrice(
+			basePrice,
+			req.OverridePrice,
+			req.PricingMode,
+			req.DiscountRate,
+		)
+		if err != nil {
+			return err
+		}
+
+		if existing.PriceLocked && !overrideLocked && !samePrice(existingOverridePrice, requestOverridePrice) {
 			return ErrPromotedModelPriceLocked
 		}
 
@@ -271,7 +363,12 @@ func UpdatePromotedModelEntry(
 			return err
 		}
 
-		overrideCommercialPrice, err := commercialPriceFromModelPrice(req.OverridePrice)
+		discountRate := req.DiscountRate
+		if pricingMode == entmodels.PromotedModelPricingModeManual {
+			discountRate = 0
+		}
+
+		overrideCommercialPrice, err := commercialPriceFromModelPrice(requestOverridePrice)
 		if err != nil {
 			return err
 		}
@@ -282,7 +379,8 @@ func UpdatePromotedModelEntry(
 		existing.SortOrder = req.SortOrder
 		existing.Enabled = req.Enabled
 		existing.OverridePrice = overrideCommercialPrice
-		existing.DiscountRate = req.DiscountRate
+		existing.PricingMode = pricingMode
+		existing.DiscountRate = discountRate
 		existing.PriceLocked = req.PriceLocked
 		existing.EffectiveAt = req.EffectiveAt
 		existing.ExpiresAt = req.ExpiresAt
@@ -383,6 +481,7 @@ func RollbackPromotedModelEntry(
 		current.SortOrder = target.SortOrder
 		current.Enabled = target.Enabled
 		current.OverridePrice = target.OverridePrice
+		current.PricingMode = target.PricingMode
 		current.DiscountRate = target.DiscountRate
 		current.PriceLocked = target.PriceLocked
 		current.EffectiveAt = target.EffectiveAt

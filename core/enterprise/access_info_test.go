@@ -254,6 +254,7 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 
 	const groupID = "group-promoted"
 	const promotedModel = "pa/gpt-5.5"
+	const secondPromotedModel = "pa/deepseek-v3"
 	const normalModel = "gpt-4o-mini"
 
 	if err := model.DB.Create(&model.Group{
@@ -285,6 +286,15 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 			},
 		},
 		{
+			Model: secondPromotedModel,
+			Owner: "ppio",
+			Type:  mode.ChatCompletions,
+			Price: model.Price{
+				InputPrice:     model.ZeroNullFloat64(0.000002),
+				InputPriceUnit: model.ZeroNullInt64(1),
+			},
+		},
+		{
 			Model: normalModel,
 			Owner: "ppio",
 			Type:  mode.ChatCompletions,
@@ -301,7 +311,7 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 		Name:   "PPIO",
 		Type:   model.ChannelTypePPIO,
 		Status: model.ChannelStatusEnabled,
-		Models: []string{promotedModel, normalModel},
+		Models: []string{promotedModel, secondPromotedModel, normalModel},
 		Sets:   []string{model.ChannelDefaultSet},
 	}
 	if err := model.DB.Create(&channel).Error; err != nil {
@@ -335,8 +345,9 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 		QuotaPolicyID:  policy.ID,
 		Model:          promotedModel,
 		ChannelID:      channel.ID,
+		DisplayName:    "GPT-5.5 Promo",
 		RecommendBadge: "Recommended",
-		SortOrder:      1,
+		SortOrder:      20,
 		Enabled:        true,
 		BasePrice:      basePrice,
 		OverridePrice:  overridePrice,
@@ -344,6 +355,25 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 		Version:        1,
 	}).Error; err != nil {
 		t.Fatalf("failed to create promoted model: %v", err)
+	}
+	if err := model.DB.Create(&models.PromotedModelPolicy{
+		QuotaPolicyID: policy.ID,
+		Model:         secondPromotedModel,
+		ChannelID:     channel.ID,
+		DisplayName:   "DeepSeek Promo",
+		SortOrder:     10,
+		Enabled:       true,
+		BasePrice: models.CommercialPrice{
+			InputPrice:     0.000002,
+			InputPriceUnit: 1,
+		},
+		OverridePrice: models.CommercialPrice{
+			InputPrice:     0.0000015,
+			InputPriceUnit: 1,
+		},
+		Version: 1,
+	}).Error; err != nil {
+		t.Fatalf("failed to create second promoted model: %v", err)
 	}
 
 	if err := model.InitModelConfigAndChannelCache(); err != nil {
@@ -361,22 +391,34 @@ func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testin
 	if len(result.ModelGroups) != 1 {
 		t.Fatalf("expected one model group, got %d: %+v", len(result.ModelGroups), result.ModelGroups)
 	}
-	if len(result.ModelGroups[0].Models) != 2 {
+	if len(result.ModelGroups[0].Models) != 3 {
 		t.Fatalf("expected promoted and normal models, got %+v", result.ModelGroups[0].Models)
 	}
 
 	first := result.ModelGroups[0].Models[0]
-	if !first.IsPromoted || first.Model != promotedModel {
+	if !first.IsPromoted || first.Model != secondPromotedModel {
+		t.Fatalf("expected lower sort_order promoted model first, got %+v", result.ModelGroups[0].Models)
+	}
+	if first.DisplayName != "DeepSeek Promo" || first.SortOrder != 10 {
+		t.Fatalf("unexpected first promoted presentation metadata: %+v", first)
+	}
+
+	second := result.ModelGroups[0].Models[1]
+	if !second.IsPromoted || second.Model != promotedModel {
 		t.Fatalf("expected promoted model first, got %+v", result.ModelGroups[0].Models)
 	}
-	if first.InputPrice != 0.0000145 || !first.CommercialLocked || first.RecommendBadge != "Recommended" {
-		t.Fatalf("unexpected promoted metadata: %+v", first)
+	if second.InputPrice != 0.0000145 ||
+		!second.CommercialLocked ||
+		second.RecommendBadge != "Recommended" ||
+		second.DisplayName != "GPT-5.5 Promo" ||
+		second.SortOrder != 20 {
+		t.Fatalf("unexpected promoted metadata: %+v", second)
 	}
-	if first.BasePrice == nil || first.BasePrice.InputPrice != model.ZeroNullFloat64(0.00003625) {
-		t.Fatalf("unexpected base price: %+v", first.BasePrice)
+	if second.BasePrice == nil || second.BasePrice.InputPrice != model.ZeroNullFloat64(0.00003625) {
+		t.Fatalf("unexpected base price: %+v", second.BasePrice)
 	}
-	if result.ModelGroups[0].Models[1].Model != normalModel || result.ModelGroups[0].Models[1].IsPromoted {
-		t.Fatalf("normal model missing or marked promoted: %+v", result.ModelGroups[0].Models[1])
+	if result.ModelGroups[0].Models[2].Model != normalModel || result.ModelGroups[0].Models[2].IsPromoted {
+		t.Fatalf("normal model missing or marked promoted: %+v", result.ModelGroups[0].Models[2])
 	}
 }
 

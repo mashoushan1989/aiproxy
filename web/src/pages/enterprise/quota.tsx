@@ -63,6 +63,8 @@ import {
     type MyStatsResponse,
     type PromotedModelPolicy,
     type PromotedModelPolicyInput,
+    type PromotedModelCandidate,
+    type PromotedPricingMode,
 } from "@/api/enterprise"
 import { toast } from "sonner"
 import { ALL_FILTER, getTimeRange } from "@/lib/enterprise"
@@ -130,6 +132,69 @@ function formatTokenPrice(price?: number, unit?: number) {
 
 function optionalNumber(value: string) {
     return value === "" ? undefined : Number(value)
+}
+
+const promotedPriceFields = [
+    "per_request_price",
+    "input_price",
+    "image_input_price",
+    "audio_input_price",
+    "output_price",
+    "image_output_price",
+    "thinking_mode_output_price",
+    "cached_price",
+    "cache_creation_price",
+    "web_search_price",
+] as const
+
+function computePromotedDiscountPrice(basePrice: PromotedModelCandidate["base_price"] | undefined, discountRate: number) {
+    const next = { ...(basePrice || {}) }
+    for (const field of promotedPriceFields) {
+        const value = next[field]
+        if (typeof value === "number") {
+            next[field] = value * discountRate
+        }
+    }
+    if (Array.isArray(next.conditional_prices)) {
+        next.conditional_prices = next.conditional_prices.map((item) => ({
+            ...item,
+            price: computePromotedDiscountPrice(item.price, discountRate),
+        }))
+    }
+    return next
+}
+
+function parsePromotedAuditSnapshot(raw?: string) {
+    if (!raw) return null
+    try {
+        return JSON.parse(raw) as Partial<PromotedModelPolicy>
+    } catch {
+        return null
+    }
+}
+
+function promotedAuditDetails(audit: { before?: string; after?: string }, label: (key: string) => string) {
+    const before = parsePromotedAuditSnapshot(audit.before)
+    const after = parsePromotedAuditSnapshot(audit.after)
+    const current = after || before
+    if (!current) return []
+
+    const details: string[] = []
+    const modelLabel = current.display_name || current.model
+    if (modelLabel) details.push(`${label("enterprise.quota.promoted.model")}: ${modelLabel}`)
+    if (current.model && current.display_name) details.push(`ID: ${current.model}`)
+    if (current.recommend_badge) details.push(`${label("enterprise.quota.promoted.badge")}: ${current.recommend_badge}`)
+    if (current.pricing_mode) {
+        details.push(current.pricing_mode === "discount"
+            ? `${label("enterprise.quota.promoted.pricingModeDiscount")} ${Math.round((current.discount_rate || 0) * 100)}%`
+            : label("enterprise.quota.promoted.pricingModeManual"))
+    }
+    if (current.override_price) {
+        details.push(`${label("enterprise.quota.promoted.inputPrice")}: ${formatTokenPrice(current.override_price.input_price, current.override_price.input_price_unit)}`)
+        details.push(`${label("enterprise.quota.promoted.outputPrice")}: ${formatTokenPrice(current.override_price.output_price, current.override_price.output_price_unit)}`)
+    }
+    details.push(`${label("enterprise.quota.promoted.lock")}: ${current.price_locked ? label("enterprise.quota.promoted.locked") : label("enterprise.quota.promoted.unlocked")}`)
+    return details
 }
 
 function isPastDateTimeLocal(value: string) {
@@ -1628,6 +1693,8 @@ function promotedFormDefaults(): PromotedModelPolicyInput {
             input_price_unit: 1,
             output_price_unit: 1,
         },
+        pricing_mode: "discount",
+        discount_rate: 0.4,
         price_locked: false,
     }
 }
@@ -1642,6 +1709,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
     const [lockedFilter, setLockedFilter] = useState<"all" | "locked" | "unlocked">("all")
     const [deleteTarget, setDeleteTarget] = useState<PromotedModelPolicy | null>(null)
     const [form, setForm] = useState<PromotedModelPolicyInput>(promotedFormDefaults)
+    const [selectedCandidate, setSelectedCandidate] = useState<PromotedModelCandidate | null>(null)
 
     const policyId = selectedPolicyId ?? policies[0]?.id
 
@@ -1663,6 +1731,12 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
         enabled: !!policyId,
     })
 
+    const candidatesQuery = useQuery({
+        queryKey: ["enterprise", "quota-promoted-model-candidates", policyId, form.model, form.channel_id],
+        queryFn: () => enterpriseApi.listPromotedModelCandidates(policyId!, { keyword: form.model, channel_id: form.channel_id }),
+        enabled: dialogOpen && !!policyId,
+    })
+
     const invalidatePromoted = () => {
         queryClient.invalidateQueries({ queryKey: ["enterprise", "quota-promoted-models", policyId] })
         queryClient.invalidateQueries({ queryKey: ["enterprise", "quota-promoted-model-audits", policyId] })
@@ -1673,6 +1747,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
         onSuccess: () => {
             invalidatePromoted()
             setDialogOpen(false)
+            setSelectedCandidate(null)
             setForm(promotedFormDefaults())
             toast.success(t("enterprise.quota.promoted.saved" as never))
         },
@@ -1687,6 +1762,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
             setDialogOpen(false)
             setEditing(null)
             setOverrideLocked(false)
+            setSelectedCandidate(null)
             toast.success(t("enterprise.quota.promoted.saved" as never))
         },
         onError: (err: Error) => toast.error(err.message),
@@ -1714,6 +1790,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
     const openCreate = () => {
         setEditing(null)
         setOverrideLocked(false)
+        setSelectedCandidate(null)
         setForm(promotedFormDefaults())
         setDialogOpen(true)
     }
@@ -1721,6 +1798,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
     const openEdit = (entry: PromotedModelPolicy) => {
         setEditing(entry)
         setOverrideLocked(false)
+        setSelectedCandidate(null)
         setForm({
             model: entry.model,
             channel_id: entry.channel_id || undefined,
@@ -1729,6 +1807,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
             sort_order: entry.sort_order || 0,
             enabled: entry.enabled,
             override_price: entry.override_price || promotedFormDefaults().override_price,
+            pricing_mode: entry.pricing_mode || (entry.discount_rate > 0 ? "discount" : "manual"),
             discount_rate: entry.discount_rate || 0,
             price_locked: entry.price_locked,
             effective_at: entry.effective_at || null,
@@ -1749,6 +1828,8 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
             channel_id: form.channel_id || undefined,
             display_name: form.display_name?.trim(),
             recommend_badge: form.recommend_badge?.trim(),
+            pricing_mode: form.pricing_mode,
+            discount_rate: form.pricing_mode === "discount" ? form.discount_rate : 0,
             effective_at: dateTimeLocalToISO(form.effective_at || ""),
             expires_at: dateTimeLocalToISO(form.expires_at || ""),
         }
@@ -1759,6 +1840,50 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
             createMutation.mutate(payload)
         }
     }
+
+    const setPricingMode = (mode: PromotedPricingMode) => {
+        const discountRate = form.discount_rate || 0.4
+        setForm({
+            ...form,
+            pricing_mode: mode,
+            discount_rate: mode === "discount" ? discountRate : 0,
+            override_price: mode === "discount" && selectedCandidate
+                ? computePromotedDiscountPrice(selectedCandidate.base_price, discountRate)
+                : form.override_price,
+        })
+    }
+
+    const setDiscountPercent = (value: string) => {
+        const percent = optionalNumber(value)
+        const discountRate = percent == null ? 0 : percent / 100
+        setForm({
+            ...form,
+            discount_rate: discountRate,
+            override_price: selectedCandidate
+                ? computePromotedDiscountPrice(selectedCandidate.base_price, discountRate)
+                : form.override_price,
+        })
+    }
+
+    const selectCandidate = (candidate: PromotedModelCandidate) => {
+        const discountRate = form.discount_rate || 0.4
+        const channelID = candidate.channels[0]?.id || form.channel_id
+        setSelectedCandidate(candidate)
+        setForm({
+            ...form,
+            model: candidate.model,
+            channel_id: channelID,
+            override_price: form.pricing_mode === "discount"
+                ? computePromotedDiscountPrice(candidate.base_price, discountRate)
+                : form.override_price,
+        })
+    }
+
+    const showCandidateDropdown = !editing &&
+        dialogOpen &&
+        !!form.model &&
+        selectedCandidate?.model !== form.model &&
+        (candidatesQuery.data?.candidates?.length || 0) > 0
 
     const entries = (entriesQuery.data?.entries || []).filter((entry) => {
         if (lockedFilter === "locked") return entry.price_locked
@@ -1848,6 +1973,11 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
                                     </TableCell>
                                     <TableCell>{entry.recommend_badge || "-"}</TableCell>
                                     <TableCell>
+                                        <Badge variant="outline" className="mb-1 text-[10px]">
+                                            {entry.pricing_mode === "discount"
+                                                ? `${t("enterprise.quota.promoted.pricingModeDiscount" as never)} ${Math.round((entry.discount_rate || 0) * 100)}%`
+                                                : t("enterprise.quota.promoted.pricingModeManual" as never)}
+                                        </Badge>
                                         <div>{formatTokenPrice(entry.override_price?.input_price, entry.override_price?.input_price_unit)}</div>
                                         <div className="text-xs text-muted-foreground">{formatTokenPrice(entry.override_price?.output_price, entry.override_price?.output_price_unit)}</div>
                                     </TableCell>
@@ -1910,18 +2040,27 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
                     ) : auditRows.length === 0 ? (
                         <div className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.noAudit" as never)}</div>
                     ) : (
-                        auditRows.slice(0, 10).map((audit) => (
-                            <div key={audit.id} className="rounded border px-3 py-2 text-xs">
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="font-medium">{audit.action}</span>
-                                    <span className="text-muted-foreground">{formatBindingTime(audit.created_at)}</span>
+                        auditRows.slice(0, 10).map((audit) => {
+                            const details = promotedAuditDetails(audit, (key) => t(key as never) as string)
+                            return (
+                                <div key={audit.id} className="rounded border px-3 py-2 text-xs">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline" className="h-5 text-[10px]">{audit.action}</Badge>
+                                            {audit.operator_name && <span className="text-muted-foreground">{audit.operator_name}</span>}
+                                        </div>
+                                        <span className="text-muted-foreground">{formatBindingTime(audit.created_at)}</span>
+                                    </div>
+                                    <div className="mt-2 grid gap-1 text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
+                                        {details.length > 0 ? details.map((item) => (
+                                            <div key={item} className="truncate">{item}</div>
+                                        )) : (
+                                            <div>{audit.summary || "-"}</div>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="text-muted-foreground mt-1">
-                                    {audit.summary || "-"}
-                                    {audit.operator_name && <span> · {audit.operator_name}</span>}
-                                </div>
-                            </div>
-                        ))
+                            )
+                        })
                     )}
                 </div>
 
@@ -1930,6 +2069,7 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
                     if (!open) {
                         setEditing(null)
                         setOverrideLocked(false)
+                        setSelectedCandidate(null)
                     }
                 }}>
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1941,7 +2081,41 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <Label>{t("enterprise.quota.promoted.model" as never)}</Label>
-                                    <Input value={form.model} disabled={!!editing} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                                    <div className="relative">
+                                        <Input
+                                            value={form.model}
+                                            disabled={!!editing}
+                                            placeholder={t("enterprise.quota.promoted.modelSearchPlaceholder" as never)}
+                                            onChange={(e) => {
+                                                setSelectedCandidate(null)
+                                                setForm({ ...form, model: e.target.value })
+                                            }}
+                                        />
+                                        {showCandidateDropdown && (
+                                            <div className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md">
+                                                {candidatesQuery.data?.candidates.map((candidate) => (
+                                                    <button
+                                                        key={candidate.model}
+                                                        type="button"
+                                                        className="flex w-full items-start justify-between gap-3 rounded-sm px-2 py-2 text-left hover:bg-muted"
+                                                        onClick={() => selectCandidate(candidate)}
+                                                    >
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="break-all font-mono text-xs leading-5" title={candidate.model}>{candidate.model}</div>
+                                                            <div className="mt-1 text-[11px] text-muted-foreground">
+                                                                {candidate.type_name || candidate.type} · {formatTokenPrice(candidate.base_price?.input_price, candidate.base_price?.input_price_unit)} / {formatTokenPrice(candidate.base_price?.output_price, candidate.base_price?.output_price_unit)}
+                                                            </div>
+                                                        </div>
+                                                        {candidate.channels[0] && (
+                                                            <Badge variant="secondary" className="shrink-0 text-[10px]">
+                                                                #{candidate.channels[0].id}
+                                                            </Badge>
+                                                        )}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 <div>
                                     <Label>{t("enterprise.quota.promoted.displayName" as never)}</Label>
@@ -1962,31 +2136,73 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
                                     <Input type="number" value={form.channel_id || ""} onChange={(e) => setForm({ ...form, channel_id: Number(e.target.value) || undefined })} />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <Label>{t("enterprise.quota.promoted.inputPrice" as never)}</Label>
-                                    <Input
-                                        type="number"
-                                        step="0.0000001"
-                                        value={form.override_price.input_price ?? ""}
-                                        onChange={(e) => setForm({
-                                            ...form,
-                                            override_price: { ...form.override_price, input_price: optionalNumber(e.target.value), input_price_unit: form.override_price.input_price_unit || 1 },
-                                        })}
-                                    />
+                            <div className="space-y-3 rounded border p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <Label>{t("enterprise.quota.promoted.pricingMode" as never)}</Label>
+                                        <p className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.pricingModeHint" as never)}</p>
+                                    </div>
+                                    <Tabs value={form.pricing_mode} onValueChange={(v) => setPricingMode(v as PromotedPricingMode)}>
+                                        <TabsList>
+                                            <TabsTrigger value="discount">{t("enterprise.quota.promoted.pricingModeDiscount" as never)}</TabsTrigger>
+                                            <TabsTrigger value="manual">{t("enterprise.quota.promoted.pricingModeManual" as never)}</TabsTrigger>
+                                        </TabsList>
+                                    </Tabs>
                                 </div>
-                                <div>
-                                    <Label>{t("enterprise.quota.promoted.outputPrice" as never)}</Label>
-                                    <Input
-                                        type="number"
-                                        step="0.0000001"
-                                        value={form.override_price.output_price ?? ""}
-                                        onChange={(e) => setForm({
-                                            ...form,
-                                            override_price: { ...form.override_price, output_price: optionalNumber(e.target.value), output_price_unit: form.override_price.output_price_unit || 1 },
-                                        })}
-                                    />
-                                </div>
+                                {form.pricing_mode === "discount" ? (
+                                    <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                            <Label>{t("enterprise.quota.promoted.discountPercent" as never)}</Label>
+                                            <Input
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                step="1"
+                                                value={Math.round((form.discount_rate || 0) * 100)}
+                                                onChange={(e) => setDiscountPercent(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label>{t("enterprise.quota.promoted.inputPrice" as never)}</Label>
+                                            <div className="h-9 rounded-md border bg-muted px-3 py-2 text-sm">
+                                                {formatTokenPrice(form.override_price.input_price, form.override_price.input_price_unit)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <Label>{t("enterprise.quota.promoted.outputPrice" as never)}</Label>
+                                            <div className="h-9 rounded-md border bg-muted px-3 py-2 text-sm">
+                                                {formatTokenPrice(form.override_price.output_price, form.override_price.output_price_unit)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <Label>{t("enterprise.quota.promoted.inputPrice" as never)}</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.0000001"
+                                                value={form.override_price.input_price ?? ""}
+                                                onChange={(e) => setForm({
+                                                    ...form,
+                                                    override_price: { ...form.override_price, input_price: optionalNumber(e.target.value), input_price_unit: form.override_price.input_price_unit || 1 },
+                                                })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <Label>{t("enterprise.quota.promoted.outputPrice" as never)}</Label>
+                                            <Input
+                                                type="number"
+                                                step="0.0000001"
+                                                value={form.override_price.output_price ?? ""}
+                                                onChange={(e) => setForm({
+                                                    ...form,
+                                                    override_price: { ...form.override_price, output_price: optionalNumber(e.target.value), output_price_unit: form.override_price.output_price_unit || 1 },
+                                                })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>

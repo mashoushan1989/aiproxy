@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	entmodels "github.com/labring/aiproxy/core/enterprise/models"
@@ -79,6 +80,7 @@ type promotedModelPolicyResponse struct {
 	Enabled        bool                   `json:"enabled"`
 	BasePrice      model.Price            `json:"base_price"`
 	OverridePrice  model.Price            `json:"override_price"`
+	PricingMode    string                 `json:"pricing_mode"`
 	DiscountRate   float64                `json:"discount_rate"`
 	PriceLocked    bool                   `json:"price_locked"`
 	EffectiveAt    any                    `json:"effective_at"`
@@ -86,6 +88,20 @@ type promotedModelPolicyResponse struct {
 	Version        int                    `json:"version"`
 	CreatedBy      string                 `json:"created_by"`
 	UpdatedBy      string                 `json:"updated_by"`
+}
+
+type promotedModelCandidateResponse struct {
+	Model     string                          `json:"model"`
+	Type      int                             `json:"type"`
+	TypeName  string                          `json:"type_name"`
+	BasePrice model.Price                     `json:"base_price"`
+	Channels  []promotedModelCandidateChannel `json:"channels"`
+}
+
+type promotedModelCandidateChannel struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Type int    `json:"type"`
 }
 
 func promotedModelResponse(entry entmodels.PromotedModelPolicy) (promotedModelPolicyResponse, error) {
@@ -112,6 +128,7 @@ func promotedModelResponse(entry entmodels.PromotedModelPolicy) (promotedModelPo
 		Enabled:        entry.Enabled,
 		BasePrice:      basePrice,
 		OverridePrice:  overridePrice,
+		PricingMode:    entry.PricingMode,
 		DiscountRate:   entry.DiscountRate,
 		PriceLocked:    entry.PriceLocked,
 		EffectiveAt:    entry.EffectiveAt,
@@ -156,6 +173,85 @@ func ListPromotedModels(c *gin.Context) {
 	}
 
 	middleware.SuccessResponse(c, gin.H{"entries": responses})
+}
+
+func ListPromotedModelCandidates(c *gin.Context) {
+	policyID, ok := policyIDParam(c)
+	if !ok {
+		return
+	}
+	query := strings.TrimSpace(strings.ToLower(c.DefaultQuery("keyword", c.Query("q"))))
+	channelID, _ := strconv.Atoi(c.Query("channel_id"))
+
+	var existing []string
+	if err := model.DB.Model(&entmodels.PromotedModelPolicy{}).
+		Where("quota_policy_id = ?", policyID).
+		Pluck("model", &existing).Error; err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	existingSet := make(map[string]struct{}, len(existing))
+	for _, modelName := range existing {
+		existingSet[modelName] = struct{}{}
+	}
+
+	var channels []model.Channel
+	if err := model.DB.
+		Where("status = ?", model.ChannelStatusEnabled).
+		Order("id ASC").
+		Find(&channels).Error; err != nil {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	candidateMap := make(map[string]promotedModelCandidateResponse)
+	candidateOrder := make([]string, 0)
+	enabledConfigs := model.LoadModelCaches().EnabledModelConfigsMap
+	for _, channel := range channels {
+		if channelID > 0 && channel.ID != channelID {
+			continue
+		}
+		for _, modelName := range channel.Models {
+			if _, exists := existingSet[modelName]; exists {
+				continue
+			}
+			if query != "" &&
+				!strings.Contains(strings.ToLower(modelName), query) &&
+				!strings.Contains(strings.ToLower(channel.Name), query) {
+				continue
+			}
+
+			config, ok := enabledConfigs[modelName]
+			if !ok {
+				continue
+			}
+			candidate, exists := candidateMap[modelName]
+			if !exists {
+				candidate = promotedModelCandidateResponse{
+					Model:     modelName,
+					Type:      int(config.Type),
+					TypeName:  config.Type.String(),
+					BasePrice: config.Price,
+					Channels:  []promotedModelCandidateChannel{},
+				}
+				candidateOrder = append(candidateOrder, modelName)
+			}
+			candidate.Channels = append(candidate.Channels, promotedModelCandidateChannel{
+				ID:   channel.ID,
+				Name: channel.Name,
+				Type: int(channel.Type),
+			})
+			candidateMap[modelName] = candidate
+		}
+	}
+
+	candidates := make([]promotedModelCandidateResponse, 0, len(candidateOrder))
+	for _, modelName := range candidateOrder {
+		candidates = append(candidates, candidateMap[modelName])
+	}
+
+	middleware.SuccessResponse(c, gin.H{"candidates": candidates})
 }
 
 func CreatePromotedModel(c *gin.Context) {

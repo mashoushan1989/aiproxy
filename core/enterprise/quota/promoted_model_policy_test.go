@@ -100,6 +100,89 @@ func TestCreatePromotedModelPolicyDefaultsUnlockedAndAudits(t *testing.T) {
 	}
 }
 
+func TestCreatePromotedModelPolicyDiscountModeComputesOverridePrice(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+
+	entry, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		PricingMode:   entmodels.PromotedModelPricingModeDiscount,
+		DiscountRate:  0.4,
+		OverridePrice: model.Price{
+			InputPrice:      model.ZeroNullFloat64(999),
+			InputPriceUnit:  model.ZeroNullInt64(1),
+			OutputPrice:     model.ZeroNullFloat64(999),
+			OutputPriceUnit: model.ZeroNullInt64(1),
+		},
+	}, AuditOperator{ID: "admin", Name: "Admin"})
+	if err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	if entry.PricingMode != entmodels.PromotedModelPricingModeDiscount {
+		t.Fatalf("pricing mode = %q", entry.PricingMode)
+	}
+	if entry.OverridePrice.InputPrice != 0.0000145 {
+		t.Fatalf("discounted input price = %.10f", entry.OverridePrice.InputPrice)
+	}
+	if entry.OverridePrice.OutputPrice != 0.000087 {
+		t.Fatalf("discounted output price = %.10f", entry.OverridePrice.OutputPrice)
+	}
+}
+
+func TestCreatePromotedModelPolicyManualModeKeepsOverridePrice(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+
+	entry, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		PricingMode:   entmodels.PromotedModelPricingModeManual,
+		DiscountRate:  0.4,
+		OverridePrice: model.Price{
+			InputPrice:      model.ZeroNullFloat64(0.123),
+			InputPriceUnit:  model.ZeroNullInt64(1),
+			OutputPrice:     model.ZeroNullFloat64(0.456),
+			OutputPriceUnit: model.ZeroNullInt64(1),
+		},
+	}, AuditOperator{ID: "admin", Name: "Admin"})
+	if err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	if entry.PricingMode != entmodels.PromotedModelPricingModeManual {
+		t.Fatalf("pricing mode = %q", entry.PricingMode)
+	}
+	if entry.OverridePrice.InputPrice != 0.123 {
+		t.Fatalf("manual input price = %.10f", entry.OverridePrice.InputPrice)
+	}
+	if entry.OverridePrice.OutputPrice != 0.456 {
+		t.Fatalf("manual output price = %.10f", entry.OverridePrice.OutputPrice)
+	}
+	if entry.DiscountRate != 0 {
+		t.Fatalf("manual discount rate = %.10f, want 0", entry.DiscountRate)
+	}
+}
+
+func TestCreatePromotedModelPolicyRejectsInvalidDiscountRate(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+
+	_, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		PricingMode:   entmodels.PromotedModelPricingModeDiscount,
+		DiscountRate:  0,
+	}, AuditOperator{ID: "admin", Name: "Admin"})
+	if err == nil {
+		t.Fatalf("expected invalid discount rate to fail")
+	}
+}
+
 func TestCreatePromotedModelPolicyAuditFailureRollsBack(t *testing.T) {
 	db := setupPromotedModelPolicyTestDB(t)
 	policy := seedPromotedModelFixtures(t, db)
@@ -166,6 +249,33 @@ func TestUpdatePromotedModelPolicyRejectsLockedPriceWithoutForce(t *testing.T) {
 	}, AuditOperator{ID: "admin"}, false)
 	if err == nil {
 		t.Fatalf("expected locked price update to fail")
+	}
+}
+
+func TestUpdatePromotedModelPolicyRejectsLockedDiscountChangeWithoutForce(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+
+	entry, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		PricingMode:   entmodels.PromotedModelPricingModeDiscount,
+		DiscountRate:  0.4,
+		PriceLocked:   true,
+	}, AuditOperator{ID: "admin"})
+	if err != nil {
+		t.Fatalf("create entry: %v", err)
+	}
+
+	_, err = UpdatePromotedModelEntry(entry.ID, UpdatePromotedModelEntryRequest{
+		Enabled:      true,
+		PricingMode:  entmodels.PromotedModelPricingModeDiscount,
+		DiscountRate: 0.5,
+		PriceLocked:  true,
+	}, AuditOperator{ID: "admin"}, false)
+	if err == nil {
+		t.Fatalf("expected locked discount update to fail")
 	}
 }
 

@@ -21,6 +21,11 @@ const (
 	PromotedModelAuditActionRollback            = "rollback"
 )
 
+const (
+	PromotedModelPricingModeManual   = "manual"
+	PromotedModelPricingModeDiscount = "discount"
+)
+
 type PromotedModelPolicy struct {
 	ID             int             `json:"id"              gorm:"primaryKey"`
 	CreatedAt      time.Time       `json:"created_at"`
@@ -36,6 +41,7 @@ type PromotedModelPolicy struct {
 	Enabled        bool            `json:"enabled"         gorm:"default:true"`
 	BasePrice      CommercialPrice `json:"base_price"      gorm:"embedded;embeddedPrefix:base_"`
 	OverridePrice  CommercialPrice `json:"override_price"  gorm:"embedded;embeddedPrefix:override_"`
+	PricingMode    string          `json:"pricing_mode"    gorm:"size:32;default:manual"`
 	DiscountRate   float64         `json:"discount_rate"   gorm:"default:0"`
 	PriceLocked    bool            `json:"price_locked"    gorm:"default:false"`
 	EffectiveAt    *time.Time      `json:"effective_at"    gorm:"index"`

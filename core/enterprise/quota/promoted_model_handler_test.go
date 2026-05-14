@@ -13,6 +13,7 @@ import (
 	entmodels "github.com/labring/aiproxy/core/enterprise/models"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
+	"github.com/labring/aiproxy/core/relay/mode"
 )
 
 func setupPromotedModelHandlerRouter(t *testing.T) (*gin.Engine, entmodels.QuotaPolicy) {
@@ -108,6 +109,11 @@ func TestPromotedModelHandlersCreateListAndAudit(t *testing.T) {
 	if !auditBody.Success || len(auditBody.Data.Audits) != 1 || auditBody.Data.Audits[0].OperatorID != "admin" {
 		t.Fatalf("unexpected audit body: %#v", auditBody)
 	}
+	if auditBody.Data.Audits[0].After == "" ||
+		!bytes.Contains([]byte(auditBody.Data.Audits[0].After), []byte(`"model":"pa/gpt-5.5"`)) ||
+		!bytes.Contains([]byte(auditBody.Data.Audits[0].After), []byte(`"recommend_badge":"Recommended"`)) {
+		t.Fatalf("audit after snapshot missing useful details: %#v", auditBody.Data.Audits[0])
+	}
 }
 
 func TestPromotedModelHandlersReturnModelPriceDTO(t *testing.T) {
@@ -155,6 +161,105 @@ func TestPromotedModelHandlersReturnModelPriceDTO(t *testing.T) {
 	}
 	if len(body.Data.Entries[0].OverridePrice.ConditionalPrices) != 1 {
 		t.Fatalf("conditional prices = %#v, want one entry", body.Data.Entries[0].OverridePrice.ConditionalPrices)
+	}
+}
+
+func TestPromotedModelCandidatesExcludeExistingPromotedModels(t *testing.T) {
+	router, policy := setupPromotedModelHandlerRouter(t)
+
+	channels := []model.Channel{
+		{
+			Name:   "PPIO Primary",
+			Type:   model.ChannelTypePPIO,
+			Status: model.ChannelStatusEnabled,
+			Models: []string{"pa/gpt-5.5", "pa/deepseek-v3"},
+			Sets:   []string{model.ChannelDefaultSet},
+		},
+		{
+			Name:   "Disabled",
+			Type:   model.ChannelTypePPIO,
+			Status: model.ChannelStatusDisabled,
+			Models: []string{"pa/disabled-only"},
+			Sets:   []string{model.ChannelDefaultSet},
+		},
+	}
+	if err := model.DB.Create(&channels).Error; err != nil {
+		t.Fatalf("seed channels: %v", err)
+	}
+	if err := model.DB.Create(&model.ModelConfig{
+		Model: "pa/deepseek-v3",
+		Type:  mode.ChatCompletions,
+		Price: model.Price{
+			InputPrice:     model.ZeroNullFloat64(0.000002),
+			InputPriceUnit: model.ZeroNullInt64(1),
+		},
+	}).Error; err != nil {
+		t.Fatalf("seed candidate model config: %v", err)
+	}
+	if err := model.DB.Create(&entmodels.PromotedModelPolicy{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+	}).Error; err != nil {
+		t.Fatalf("seed promoted model: %v", err)
+	}
+	if err := model.InitModelConfigAndChannelCache(); err != nil {
+		t.Fatalf("initialize model cache: %v", err)
+	}
+
+	resp := requestJSON(t, router, http.MethodGet, "/api/enterprise/quota/policies/1/promoted-model-candidates", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", resp.Code, resp.Body.String())
+	}
+
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Candidates []struct {
+				Model     string      `json:"model"`
+				BasePrice model.Price `json:"base_price"`
+				Channels  []struct {
+					ID   int    `json:"id"`
+					Name string `json:"name"`
+					Type int    `json:"type"`
+				} `json:"channels"`
+			} `json:"candidates"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode candidates: %v", err)
+	}
+	if !body.Success {
+		t.Fatalf("success = false, body = %s", resp.Body.String())
+	}
+	if len(body.Data.Candidates) != 1 {
+		t.Fatalf("candidates = %#v, want only unpromoted enabled model", body.Data.Candidates)
+	}
+	if body.Data.Candidates[0].Model != "pa/deepseek-v3" ||
+		body.Data.Candidates[0].BasePrice.InputPrice != model.ZeroNullFloat64(0.000002) ||
+		len(body.Data.Candidates[0].Channels) != 1 ||
+		body.Data.Candidates[0].Channels[0].ID != channels[0].ID ||
+		body.Data.Candidates[0].Channels[0].Name != "PPIO Primary" ||
+		body.Data.Candidates[0].Channels[0].Type != int(model.ChannelTypePPIO) {
+		t.Fatalf("unexpected candidate: %#v", body.Data.Candidates[0])
+	}
+
+	searchResp := requestJSON(t, router, http.MethodGet, "/api/enterprise/quota/policies/1/promoted-model-candidates?q=missing", nil)
+	if searchResp.Code != http.StatusOK {
+		t.Fatalf("search status = %d, body = %s", searchResp.Code, searchResp.Body.String())
+	}
+	var searchBody struct {
+		Data struct {
+			Candidates []struct {
+				Model string `json:"model"`
+			} `json:"candidates"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(searchResp.Body.Bytes(), &searchBody); err != nil {
+		t.Fatalf("decode search candidates: %v", err)
+	}
+	if len(searchBody.Data.Candidates) != 0 {
+		t.Fatalf("search candidates = %#v, want none", searchBody.Data.Candidates)
 	}
 }
 

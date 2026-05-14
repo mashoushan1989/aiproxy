@@ -1076,9 +1076,9 @@ function ModelGroupSection({ groups, baseUrl, ownerBaseUrls, localOwner }: { gro
                                                             >
                                                                 {m.model}
                                                             </button>
-                                                            {m.is_promoted && (
-                                                                <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4">
-                                                                    {m.recommend_badge || t("enterprise.myAccess.promoted" as never)}
+                                                            {m.is_promoted && m.recommend_badge && (
+                                                                <Badge className="text-[10px] px-1.5 py-0 h-4 bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/40 dark:text-amber-300">
+                                                                    {m.recommend_badge}
                                                                 </Badge>
                                                             )}
                                                             {(m.commercial_locked || m.price_locked) && (
@@ -1087,6 +1087,11 @@ function ModelGroupSection({ groups, baseUrl, ownerBaseUrls, localOwner }: { gro
                                                                 </Badge>
                                                             )}
                                                         </div>
+                                                        {m.display_name && (
+                                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                                {m.display_name}
+                                                            </div>
+                                                        )}
                                                     </td>
                                                     <td className="px-3 py-2">
                                                         <div className="flex flex-wrap gap-1">
