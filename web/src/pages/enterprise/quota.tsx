@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, Trash2, Shield, AlertTriangle, Search, Building2, User, Bell, CalendarClock } from "lucide-react"
+import { Plus, Pencil, Trash2, Shield, AlertTriangle, Search, Building2, User, Bell, CalendarClock, Lock, LockOpen, RotateCcw, Star } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -61,6 +61,8 @@ import {
     type FeishuUser,
     type QuotaNotifConfig,
     type MyStatsResponse,
+    type PromotedModelPolicy,
+    type PromotedModelPolicyInput,
 } from "@/api/enterprise"
 import { toast } from "sonner"
 import { ALL_FILTER, getTimeRange } from "@/lib/enterprise"
@@ -118,6 +120,16 @@ function formatBindingTime(value?: string | null, fallback?: string | null) {
 function formatExpiryTime(value: string | null | undefined, permanentLabel: string) {
     if (!value) return permanentLabel
     return formatBindingTime(value)
+}
+
+function formatTokenPrice(price?: number, unit?: number) {
+    if (price == null) return "-"
+    const normalized = unit && unit > 0 ? price / unit * 1_000_000 : price * 1_000_000
+    return `¥${normalized.toFixed(4)} / M`
+}
+
+function optionalNumber(value: string) {
+    return value === "" ? undefined : Number(value)
 }
 
 function isPastDateTimeLocal(value: string) {
@@ -1608,6 +1620,450 @@ function NotifConfigTab({ canManage }: { canManage: boolean }) {
     )
 }
 
+function promotedFormDefaults(): PromotedModelPolicyInput {
+    return {
+        model: "",
+        enabled: true,
+        override_price: {
+            input_price_unit: 1,
+            output_price_unit: 1,
+        },
+        price_locked: false,
+    }
+}
+
+function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; canManage: boolean }) {
+    const { t } = useTranslation()
+    const queryClient = useQueryClient()
+    const [selectedPolicyId, setSelectedPolicyId] = useState<number | null>(policies[0]?.id ?? null)
+    const [editing, setEditing] = useState<PromotedModelPolicy | null>(null)
+    const [dialogOpen, setDialogOpen] = useState(false)
+    const [overrideLocked, setOverrideLocked] = useState(false)
+    const [lockedFilter, setLockedFilter] = useState<"all" | "locked" | "unlocked">("all")
+    const [deleteTarget, setDeleteTarget] = useState<PromotedModelPolicy | null>(null)
+    const [form, setForm] = useState<PromotedModelPolicyInput>(promotedFormDefaults)
+
+    const policyId = selectedPolicyId ?? policies[0]?.id
+
+    useEffect(() => {
+        if (!policyId && policies[0]?.id) {
+            setSelectedPolicyId(policies[0].id)
+        }
+    }, [policies, policyId])
+
+    const entriesQuery = useQuery({
+        queryKey: ["enterprise", "quota-promoted-models", policyId],
+        queryFn: () => enterpriseApi.listPromotedModels(policyId!),
+        enabled: !!policyId,
+    })
+
+    const auditsQuery = useQuery({
+        queryKey: ["enterprise", "quota-promoted-model-audits", policyId],
+        queryFn: () => enterpriseApi.listPromotedModelAudits(policyId!),
+        enabled: !!policyId,
+    })
+
+    const invalidatePromoted = () => {
+        queryClient.invalidateQueries({ queryKey: ["enterprise", "quota-promoted-models", policyId] })
+        queryClient.invalidateQueries({ queryKey: ["enterprise", "quota-promoted-model-audits", policyId] })
+    }
+
+    const createMutation = useMutation({
+        mutationFn: (payload: PromotedModelPolicyInput) => enterpriseApi.createPromotedModel(policyId!, payload),
+        onSuccess: () => {
+            invalidatePromoted()
+            setDialogOpen(false)
+            setForm(promotedFormDefaults())
+            toast.success(t("enterprise.quota.promoted.saved" as never))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const updateMutation = useMutation({
+        mutationFn: (payload: PromotedModelPolicyInput & { override_locked?: boolean }) =>
+            enterpriseApi.updatePromotedModel(policyId!, editing!.id, payload),
+        onSuccess: () => {
+            invalidatePromoted()
+            setDialogOpen(false)
+            setEditing(null)
+            setOverrideLocked(false)
+            toast.success(t("enterprise.quota.promoted.saved" as never))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const deleteMutation = useMutation({
+        mutationFn: (entry: PromotedModelPolicy) => enterpriseApi.deletePromotedModel(policyId!, entry.id),
+        onSuccess: () => {
+            invalidatePromoted()
+            setDeleteTarget(null)
+            toast.success(t("enterprise.quota.promoted.deleted" as never))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const rollbackMutation = useMutation({
+        mutationFn: (entry: PromotedModelPolicy) => enterpriseApi.rollbackPromotedModel(policyId!, entry.id, Math.max(1, entry.version - 1)),
+        onSuccess: () => {
+            invalidatePromoted()
+            toast.success(t("enterprise.quota.promoted.rollbackSuccess" as never))
+        },
+        onError: (err: Error) => toast.error(err.message),
+    })
+
+    const openCreate = () => {
+        setEditing(null)
+        setOverrideLocked(false)
+        setForm(promotedFormDefaults())
+        setDialogOpen(true)
+    }
+
+    const openEdit = (entry: PromotedModelPolicy) => {
+        setEditing(entry)
+        setOverrideLocked(false)
+        setForm({
+            model: entry.model,
+            channel_id: entry.channel_id || undefined,
+            display_name: entry.display_name || "",
+            recommend_badge: entry.recommend_badge || "",
+            sort_order: entry.sort_order || 0,
+            enabled: entry.enabled,
+            override_price: entry.override_price || promotedFormDefaults().override_price,
+            discount_rate: entry.discount_rate || 0,
+            price_locked: entry.price_locked,
+            effective_at: entry.effective_at || null,
+            expires_at: entry.expires_at || null,
+        })
+        setDialogOpen(true)
+    }
+
+    const save = () => {
+        if (!policyId) return
+        if (!form.model.trim()) {
+            toast.error(t("enterprise.quota.promoted.modelRequired" as never))
+            return
+        }
+
+        const payload: PromotedModelPolicyInput = {
+            ...form,
+            channel_id: form.channel_id || undefined,
+            display_name: form.display_name?.trim(),
+            recommend_badge: form.recommend_badge?.trim(),
+            effective_at: dateTimeLocalToISO(form.effective_at || ""),
+            expires_at: dateTimeLocalToISO(form.expires_at || ""),
+        }
+
+        if (editing) {
+            updateMutation.mutate({ ...payload, override_locked: overrideLocked })
+        } else {
+            createMutation.mutate(payload)
+        }
+    }
+
+    const entries = (entriesQuery.data?.entries || []).filter((entry) => {
+        if (lockedFilter === "locked") return entry.price_locked
+        if (lockedFilter === "unlocked") return !entry.price_locked
+        return true
+    })
+
+    const auditRows = auditsQuery.data?.audits || []
+
+    if (policies.length === 0) {
+        return (
+            <Card>
+                <CardContent className="text-center py-8 text-muted-foreground">
+                    {t("enterprise.quota.promoted.noPolicies" as never)}
+                </CardContent>
+            </Card>
+        )
+    }
+
+    return (
+        <Card>
+            <CardHeader>
+                <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="flex items-center gap-2">
+                        <Star className="h-5 w-5" />
+                        {t("enterprise.quota.promoted.title" as never)}
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                        <Select value={policyId ? String(policyId) : ""} onValueChange={(v) => setSelectedPolicyId(Number(v))}>
+                            <SelectTrigger className="w-56">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {policies.map((p) => (
+                                    <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Select value={lockedFilter} onValueChange={(v) => setLockedFilter(v as typeof lockedFilter)}>
+                            <SelectTrigger className="w-36">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{t("common.all")}</SelectItem>
+                                <SelectItem value="locked">{t("enterprise.quota.promoted.locked" as never)}</SelectItem>
+                                <SelectItem value="unlocked">{t("enterprise.quota.promoted.unlocked" as never)}</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        {canManage && (
+                            <Button onClick={openCreate}>
+                                <Plus className="h-4 w-4 mr-2" />
+                                {t("enterprise.quota.promoted.add" as never)}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {entriesQuery.isLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">{t("common.loading")}</div>
+                ) : entries.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">{t("enterprise.quota.promoted.empty" as never)}</div>
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>{t("enterprise.quota.promoted.model" as never)}</TableHead>
+                                <TableHead>{t("enterprise.quota.promoted.badge" as never)}</TableHead>
+                                <TableHead>{t("enterprise.quota.promoted.overridePrice" as never)}</TableHead>
+                                <TableHead>{t("enterprise.quota.promoted.lock" as never)}</TableHead>
+                                <TableHead>{t("enterprise.quota.promoted.status" as never)}</TableHead>
+                                <TableHead>{t("enterprise.quota.promoted.version" as never)}</TableHead>
+                                <TableHead className="w-32">{t("common.edit")}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {entries.map((entry) => (
+                                <TableRow key={entry.id}>
+                                    <TableCell>
+                                        <div className="font-medium">{entry.display_name || entry.model}</div>
+                                        <div className="text-xs text-muted-foreground">{entry.model}</div>
+                                        {entry.channel_id > 0 && (
+                                            <div className="text-xs text-muted-foreground">
+                                                {t("enterprise.quota.promoted.referenceChannel" as never)} #{entry.channel_id}
+                                            </div>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>{entry.recommend_badge || "-"}</TableCell>
+                                    <TableCell>
+                                        <div>{formatTokenPrice(entry.override_price?.input_price, entry.override_price?.input_price_unit)}</div>
+                                        <div className="text-xs text-muted-foreground">{formatTokenPrice(entry.override_price?.output_price, entry.override_price?.output_price_unit)}</div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-1.5">
+                                            {entry.price_locked ? (
+                                                <Lock className="h-4 w-4" />
+                                            ) : (
+                                                <LockOpen className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                            <span className="text-xs text-muted-foreground">
+                                                {entry.price_locked ? t("enterprise.quota.promoted.locked" as never) : t("enterprise.quota.promoted.unlocked" as never)}
+                                            </span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge variant={entry.enabled ? "default" : "secondary"}>
+                                            {entry.enabled ? t("enterprise.quota.promoted.enabled" as never) : t("enterprise.quota.promoted.disabled" as never)}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell>{entry.version}</TableCell>
+                                    <TableCell>
+                                        {canManage && (
+                                            <div className="flex items-center gap-1">
+                                                <Button variant="ghost" size="icon" onClick={() => openEdit(entry)}>
+                                                    <Pencil className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    disabled={entry.version <= 1 || rollbackMutation.isPending}
+                                                    onClick={() => rollbackMutation.mutate(entry)}
+                                                >
+                                                    <RotateCcw className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-red-500 hover:text-red-600"
+                                                    onClick={() => setDeleteTarget(entry)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                )}
+                <div className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.referenceChannelHint" as never)}</div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                    <h3 className="text-sm font-medium">{t("enterprise.quota.promoted.audit" as never)}</h3>
+                    {auditsQuery.isLoading ? (
+                        <div className="text-xs text-muted-foreground">{t("common.loading")}</div>
+                    ) : auditRows.length === 0 ? (
+                        <div className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.noAudit" as never)}</div>
+                    ) : (
+                        auditRows.slice(0, 10).map((audit) => (
+                            <div key={audit.id} className="rounded border px-3 py-2 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="font-medium">{audit.action}</span>
+                                    <span className="text-muted-foreground">{formatBindingTime(audit.created_at)}</span>
+                                </div>
+                                <div className="text-muted-foreground mt-1">
+                                    {audit.summary || "-"}
+                                    {audit.operator_name && <span> · {audit.operator_name}</span>}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <Dialog open={dialogOpen} onOpenChange={(open) => {
+                    setDialogOpen(open)
+                    if (!open) {
+                        setEditing(null)
+                        setOverrideLocked(false)
+                    }
+                }}>
+                    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                            <DialogTitle>{editing ? t("enterprise.quota.promoted.edit" as never) : t("enterprise.quota.promoted.add" as never)}</DialogTitle>
+                            <DialogDescription>{t("enterprise.quota.promoted.formDescription" as never)}</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.model" as never)}</Label>
+                                    <Input value={form.model} disabled={!!editing} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+                                </div>
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.displayName" as never)}</Label>
+                                    <Input value={form.display_name || ""} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.badge" as never)}</Label>
+                                    <Input value={form.recommend_badge || ""} onChange={(e) => setForm({ ...form, recommend_badge: e.target.value })} />
+                                </div>
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.sortOrder" as never)}</Label>
+                                    <Input type="number" value={form.sort_order ?? 0} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
+                                </div>
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.referenceChannel" as never)}</Label>
+                                    <Input type="number" value={form.channel_id || ""} onChange={(e) => setForm({ ...form, channel_id: Number(e.target.value) || undefined })} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.inputPrice" as never)}</Label>
+                                    <Input
+                                        type="number"
+                                        step="0.0000001"
+                                        value={form.override_price.input_price ?? ""}
+                                        onChange={(e) => setForm({
+                                            ...form,
+                                            override_price: { ...form.override_price, input_price: optionalNumber(e.target.value), input_price_unit: form.override_price.input_price_unit || 1 },
+                                        })}
+                                    />
+                                </div>
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.outputPrice" as never)}</Label>
+                                    <Input
+                                        type="number"
+                                        step="0.0000001"
+                                        value={form.override_price.output_price ?? ""}
+                                        onChange={(e) => setForm({
+                                            ...form,
+                                            override_price: { ...form.override_price, output_price: optionalNumber(e.target.value), output_price_unit: form.override_price.output_price_unit || 1 },
+                                        })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.effectiveAt" as never)}</Label>
+                                    <Input
+                                        type="datetime-local"
+                                        value={toDateTimeLocal(form.effective_at)}
+                                        onChange={(e) => setForm({ ...form, effective_at: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <Label>{t("enterprise.quota.expiresAt" as never)}</Label>
+                                    <Input
+                                        type="datetime-local"
+                                        value={toDateTimeLocal(form.expires_at)}
+                                        onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between rounded border p-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.enabled" as never)}</Label>
+                                    <p className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.enabledHint" as never)}</p>
+                                </div>
+                                <Switch checked={form.enabled} onCheckedChange={(v) => setForm({ ...form, enabled: v })} />
+                            </div>
+                            <div className="flex items-center justify-between rounded border p-3">
+                                <div>
+                                    <Label>{t("enterprise.quota.promoted.lock" as never)}</Label>
+                                    <p className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.lockHint" as never)}</p>
+                                </div>
+                                <Switch checked={!!form.price_locked} onCheckedChange={(v) => setForm({ ...form, price_locked: v })} />
+                            </div>
+                            {editing?.price_locked && (
+                                <div className="flex items-center justify-between rounded border border-amber-300 bg-amber-50 p-3 dark:bg-amber-950/20">
+                                    <div>
+                                        <Label>{t("enterprise.quota.promoted.overrideLocked" as never)}</Label>
+                                        <p className="text-xs text-muted-foreground">{t("enterprise.quota.promoted.overrideLockedHint" as never)}</p>
+                                    </div>
+                                    <Switch checked={overrideLocked} onCheckedChange={setOverrideLocked} />
+                                </div>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t("common.cancel")}</Button>
+                            <Button onClick={save} disabled={createMutation.isPending || updateMutation.isPending}>
+                                {(createMutation.isPending || updateMutation.isPending) ? t("common.saving") : t("common.save")}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{t("enterprise.quota.promoted.deleteTitle" as never)}</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                {t("enterprise.quota.promoted.deleteDesc", { model: deleteTarget?.model })}
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+                            <AlertDialogAction
+                                className="bg-red-500 hover:bg-red-600"
+                                onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget)}
+                                disabled={deleteMutation.isPending}
+                            >
+                                {deleteMutation.isPending ? t("common.deleting") : t("common.delete")}
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </CardContent>
+        </Card>
+    )
+}
+
 // ─── Main Page ──────────────────────────────────────────────────────────────
 
 export default function QuotaPoliciesPage() {
@@ -1745,6 +2201,10 @@ export default function QuotaPoliciesPage() {
                         <User className="w-4 h-4 mr-1.5" />
                         {t("enterprise.quota.userOverride")}
                     </TabsTrigger>
+                    <TabsTrigger value="promoted">
+                        <Star className="w-4 h-4 mr-1.5" />
+                        {t("enterprise.quota.promoted.tab" as never)}
+                    </TabsTrigger>
                     <TabsTrigger value="notif">
                         <Bell className="w-4 h-4 mr-1.5" />
                         {t("enterprise.quota.notif.tab" as never)}
@@ -1864,7 +2324,12 @@ export default function QuotaPoliciesPage() {
                     <UserOverrideTab policies={policies} canManage={canManage} />
                 </TabsContent>
 
-                {/* Tab 4: Notification Settings */}
+                {/* Tab 4: Promoted Models */}
+                <TabsContent value="promoted">
+                    <PromotedModelsTab policies={policies} canManage={canManage} />
+                </TabsContent>
+
+                {/* Tab 5: Notification Settings */}
                 <TabsContent value="notif">
                     <NotifConfigTab canManage={canManage} />
                 </TabsContent>
