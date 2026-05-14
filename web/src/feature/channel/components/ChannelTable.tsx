@@ -134,30 +134,30 @@ export function ChannelTable() {
     }
 
     // 打开更新渠道对话框
-    const openUpdateDialog = (channel: Channel) => {
+    const openUpdateDialog = useCallback((channel: Channel) => {
         setDialogMode('update')
         setSelectedChannel({...channel})
         setChannelDialogOpen(true)
-    }
+    }, [])
 
     // 打开复制渠道对话框
-    const openCopyDialog = (channel: Channel) => {
+    const openCopyDialog = useCallback((channel: Channel) => {
         setDialogMode('copy')
         setSelectedChannel({...channel})
         setChannelDialogOpen(true)
-    }
+    }, [])
 
     // 打开删除对话框
-    const openDeleteDialog = (id: number) => {
+    const openDeleteDialog = useCallback((id: number) => {
         setSelectedChannelId(id)
         setDeleteDialogOpen(true)
-    }
+    }, [])
 
     // 更新渠道状态
-    const handleStatusChange = (id: number, currentStatus: number) => {
+    const handleStatusChange = useCallback((id: number, currentStatus: number) => {
         const newStatus = currentStatus === 2 ? 1 : 2
         updateStatus({ id, status: { status: newStatus } })
-    }
+    }, [updateStatus])
 
     // 刷新渠道列表
     const refreshChannels = () => {
@@ -210,7 +210,7 @@ export function ChannelTable() {
     }
 
     // Export single channel to JSON file
-    const exportSingleChannel = (channel: Channel) => {
+    const exportSingleChannel = useCallback((channel: Channel) => {
         const exportData: ChannelCreateRequest[] = [{
             type: channel.type,
             name: channel.name,
@@ -237,7 +237,7 @@ export function ChannelTable() {
         document.body.removeChild(a)
         URL.revokeObjectURL(url)
         toast.success(t('channel.exportSuccess'))
-    }
+    }, [t])
 
     // Import channels from JSON file
     const importChannels = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -296,16 +296,16 @@ export function ChannelTable() {
     }
 
     // 跳转到全局仪表盘
-    const navigateToDashboard = (channelId: number) => {
+    const navigateToDashboard = useCallback((channelId: number) => {
         navigate(`${ROUTES.MONITOR}?channel=${channelId}`)
-    }
+    }, [navigate])
 
     // 获取渠道类型名称
-    const getChannelTypeName = (typeId: number): string => {
+    const getChannelTypeName = useCallback((typeId: number): string => {
         if (!typeMetas) return String(typeId)
         const meta = typeMetas[typeId]
         return meta ? meta.name : String(typeId)
-    }
+    }, [typeMetas])
 
     const providerOptions = useMemo(() => {
         if (!typeMetas) return []
@@ -338,7 +338,6 @@ export function ChannelTable() {
     const dashboardCell = 'cursor-pointer hover:text-primary transition-colors'
 
     // 表格列定义
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const columns: ColumnDef<Channel>[] = useMemo(() => [
         {
             accessorKey: 'id',
@@ -669,7 +668,7 @@ export function ChannelTable() {
                 </DropdownMenu>
             ),
         },
-    ], [t, isTesting, isStatusUpdating, getDisplayModels, runtimeMetrics, formatPercent])
+    ], [t, isTesting, isStatusUpdating, getDisplayModels, runtimeMetrics, formatPercent, clearResults, exportSingleChannel, getChannelTypeName, handleStatusChange, navigateToDashboard, testChannel, openCopyDialog, openDeleteDialog, openUpdateDialog])
 
     // 初始化表格
     const table = useReactTable({

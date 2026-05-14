@@ -172,31 +172,31 @@ export function TokenTable() {
     }, [runtimeMetrics])
 
     // 打开删除对话框
-    const openDeleteDialog = (id: number) => {
+    const openDeleteDialog = useCallback((id: number) => {
         setSelectedTokenId(id)
         setDeleteDialogOpen(true)
-    }
+    }, [])
 
     // 打开限额配置对话框
-    const openQuotaDialog = (token: Token) => {
+    const openQuotaDialog = useCallback((token: Token) => {
         setSelectedToken(token)
         setQuotaDialogOpen(true)
-    }
+    }, [])
 
     // 更新Token状态
-    const handleStatusChange = (id: number, currentStatus: number) => {
+    const handleStatusChange = useCallback((id: number, currentStatus: number) => {
         const newStatus = currentStatus === 2 ? 1 : 2
         updateStatus({ id, status: { status: newStatus } })
-    }
+    }, [updateStatus])
 
     // 复制Token到剪贴板
-    const copyToClipboard = (text: string) => {
+    const copyToClipboard = useCallback((text: string) => {
         navigator.clipboard.writeText(text).then(() => {
             toast.success(t('common.copied'))
         }).catch(() => {
             toast.error(t('common.copyFailed'))
         })
-    }
+    }, [t])
 
     // 刷新Token列表
     const refreshTokens = () => {
@@ -208,7 +208,6 @@ export function TokenTable() {
     }
 
     // 表格列定义
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const columns: ColumnDef<Token>[] = useMemo(() => [
         {
             accessorKey: 'name',
@@ -498,7 +497,7 @@ export function TokenTable() {
                 </DropdownMenu>
             ),
         },
-    ], [t, isStatusUpdating, runtimeMetricsMap])
+    ], [t, isStatusUpdating, runtimeMetricsMap, copyToClipboard, handleStatusChange, openDeleteDialog, openQuotaDialog])
 
     // 初始化表格
     const table = useReactTable({

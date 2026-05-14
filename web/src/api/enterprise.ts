@@ -1,6 +1,7 @@
 import { get, post, put, del } from './index'
 import type { EnterpriseUser } from '@/store/auth'
 import apiClient from './index'
+import type { ModelPrice } from '@/types/model'
 
 // Quota Policy types
 export interface QuotaPolicy {
@@ -64,6 +65,64 @@ export interface BatchBindResponse {
 export interface QuotaPolicyListResponse {
     policies: QuotaPolicy[]
     total: number
+}
+
+export interface PromotedModelPolicy {
+    id: number
+    created_at: string
+    updated_at: string
+    quota_policy_id: number
+    quota_policy?: QuotaPolicy
+    model: string
+    channel_id: number
+    display_name: string
+    recommend_badge: string
+    sort_order: number
+    enabled: boolean
+    base_price: ModelPrice
+    override_price: ModelPrice
+    discount_rate: number
+    price_locked: boolean
+    effective_at?: string | null
+    expires_at?: string | null
+    version: number
+    created_by?: string
+    updated_by?: string
+}
+
+export interface PromotedModelPolicyInput {
+    model: string
+    channel_id?: number
+    display_name?: string
+    recommend_badge?: string
+    sort_order?: number
+    enabled: boolean
+    override_price: ModelPrice
+    discount_rate?: number
+    price_locked: boolean
+    effective_at?: string | null
+    expires_at?: string | null
+}
+
+export interface PromotedModelListResponse {
+    entries: PromotedModelPolicy[]
+}
+
+export interface PromotedModelAudit {
+    id: number
+    created_at: string
+    promoted_model_policy_id: number
+    quota_policy_id: number
+    action: string
+    before?: string
+    after?: string
+    summary?: string
+    operator_id?: string
+    operator_name?: string
+}
+
+export interface PromotedModelAuditResponse {
+    audits: PromotedModelAudit[]
 }
 
 export interface GroupQuotaPolicy {
@@ -544,6 +603,12 @@ export interface ModelAccessInfo {
     supported_endpoints: string[]
     max_context?: number
     max_output?: number
+    is_promoted?: boolean
+    recommend_badge?: string
+    commercial_locked?: boolean
+    price_locked?: boolean
+    reference_channel?: number
+    base_price?: ModelPrice
 }
 
 export interface ModelGroupInfo {
@@ -810,6 +875,44 @@ export const enterpriseApi = {
 
     deleteQuotaPolicy: (id: number): Promise<void> => {
         return del<void>(`/enterprise/quota/policies/${id}`)
+    },
+
+    listPromotedModels: (policyId: number): Promise<PromotedModelListResponse> => {
+        return get<PromotedModelListResponse>(`/enterprise/quota/policies/${policyId}/promoted-models`)
+    },
+
+    listPromotedModelAudits: (policyId: number): Promise<PromotedModelAuditResponse> => {
+        return get<PromotedModelAuditResponse>(`/enterprise/quota/policies/${policyId}/promoted-models/audit`)
+    },
+
+    createPromotedModel: (
+        policyId: number,
+        payload: PromotedModelPolicyInput,
+    ): Promise<PromotedModelPolicy> => {
+        return post<PromotedModelPolicy>(`/enterprise/quota/policies/${policyId}/promoted-models`, payload)
+    },
+
+    updatePromotedModel: (
+        policyId: number,
+        entryId: number,
+        payload: PromotedModelPolicyInput & { override_locked?: boolean },
+    ): Promise<PromotedModelPolicy> => {
+        return put<PromotedModelPolicy>(`/enterprise/quota/policies/${policyId}/promoted-models/${entryId}`, payload)
+    },
+
+    deletePromotedModel: (policyId: number, entryId: number): Promise<void> => {
+        return del<void>(`/enterprise/quota/policies/${policyId}/promoted-models/${entryId}`)
+    },
+
+    rollbackPromotedModel: (
+        policyId: number,
+        entryId: number,
+        version: number,
+    ): Promise<PromotedModelPolicy> => {
+        return post<PromotedModelPolicy>(
+            `/enterprise/quota/policies/${policyId}/promoted-models/${entryId}/rollback`,
+            { version },
+        )
     },
 
     bindQuotaPolicy: (groupId: string, quotaPolicyId: number): Promise<GroupQuotaPolicy> => {

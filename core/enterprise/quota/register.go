@@ -17,6 +17,8 @@ func RegisterRoutes(group *gin.RouterGroup, permMW map[string]gin.HandlerFunc) {
 	policies := group.Group("/quota/policies", quotaViewMw)
 	policies.GET("", ListPolicies)
 	policies.GET("/:id", GetPolicy)
+	policies.GET("/:id/promoted-models", ListPromotedModels)
+	policies.GET("/:id/promoted-models/audit", ListPromotedModelAudits)
 
 	bind := group.Group("/quota", quotaViewMw)
 	bind.GET("/department-bindings", ListDepartmentPolicyBindings)
@@ -27,6 +29,10 @@ func RegisterRoutes(group *gin.RouterGroup, permMW map[string]gin.HandlerFunc) {
 	adminPolicies.POST("", CreatePolicy)
 	adminPolicies.PUT("/:id", UpdatePolicy)
 	adminPolicies.DELETE("/:id", DeletePolicy)
+	adminPolicies.POST("/:id/promoted-models", CreatePromotedModel)
+	adminPolicies.PUT("/:id/promoted-models/:entry_id", UpdatePromotedModel)
+	adminPolicies.DELETE("/:id/promoted-models/:entry_id", DeletePromotedModel)
+	adminPolicies.POST("/:id/promoted-models/:entry_id/rollback", RollbackPromotedModel)
 
 	adminBind := group.Group("/quota", quotaManageMw)
 	adminBind.POST("/bind", BindPolicyToGroup)
@@ -53,4 +59,5 @@ func RegisterRoutes(group *gin.RouterGroup, permMW map[string]gin.HandlerFunc) {
 // the progressive quota tier logic during request distribution.
 func Init() {
 	middleware.EnterpriseQuotaCheck = CheckQuotaTier
+	middleware.EnterprisePriceResolver = ResolvePromotedModelPrice
 }

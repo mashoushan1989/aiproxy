@@ -953,9 +953,15 @@ function ModelGroupSection({ groups, baseUrl, ownerBaseUrls, localOwner }: { gro
             })
             if (sortField) {
                 models.sort((a, b) => {
+                    if (!!a.is_promoted !== !!b.is_promoted) return a.is_promoted ? -1 : 1
                     const av = a[sortField] ?? 0
                     const bv = b[sortField] ?? 0
                     return sortDirection === "asc" ? av - bv : bv - av
+                })
+            } else {
+                models.sort((a, b) => {
+                    if (!!a.is_promoted !== !!b.is_promoted) return a.is_promoted ? -1 : 1
+                    return a.model.localeCompare(b.model)
                 })
             }
             return { ...g, models }
@@ -1062,13 +1068,25 @@ function ModelGroupSection({ groups, baseUrl, ownerBaseUrls, localOwner }: { gro
                                             {group.models.map(m => (
                                                 <tr key={m.model} className="border-b last:border-b-0 hover:bg-muted/30">
                                                     <td className="px-3 py-2">
-                                                        <button
-                                                            className="font-mono text-xs hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
-                                                            onClick={() => copyToClipboard(m.model, t("enterprise.myAccess.copied"))}
-                                                            title={t("enterprise.myAccess.copyModelId" as never)}
-                                                        >
-                                                            {m.model}
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                className="font-mono text-xs hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition-colors"
+                                                                onClick={() => copyToClipboard(m.model, t("enterprise.myAccess.copied"))}
+                                                                title={t("enterprise.myAccess.copyModelId" as never)}
+                                                            >
+                                                                {m.model}
+                                                            </button>
+                                                            {m.is_promoted && (
+                                                                <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4">
+                                                                    {m.recommend_badge || t("enterprise.myAccess.promoted" as never)}
+                                                                </Badge>
+                                                            )}
+                                                            {(m.commercial_locked || m.price_locked) && (
+                                                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                                                                    {t("enterprise.myAccess.commercialLocked" as never)}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
                                                     </td>
                                                     <td className="px-3 py-2">
                                                         <div className="flex flex-wrap gap-1">

@@ -104,10 +104,10 @@ export function GroupTable() {
         setCreateGroupDialogOpen(true)
     }
 
-    const openEditDialog = (group: Group) => {
+    const openEditDialog = useCallback((group: Group) => {
         setEditingGroup(group)
         setCreateGroupDialogOpen(true)
-    }
+    }, [])
 
     // Open group detail dialog
     const openDetailDialog = (groupId: string) => {
@@ -116,22 +116,22 @@ export function GroupTable() {
     }
 
     // Open delete dialog
-    const openDeleteDialog = (groupId: string) => {
+    const openDeleteDialog = useCallback((groupId: string) => {
         setSelectedGroupId(groupId)
         setDeleteDialogOpen(true)
-    }
+    }, [])
 
     // Open token creation dialog
-    const openTokenDialog = (groupId: string) => {
+    const openTokenDialog = useCallback((groupId: string) => {
         setSelectedGroupId(groupId)
         setTokenDialogOpen(true)
-    }
+    }, [])
 
     // Handle status change
-    const handleStatusChange = (groupId: string, currentStatus: number) => {
+    const handleStatusChange = useCallback((groupId: string, currentStatus: number) => {
         const newStatus = currentStatus === 2 ? 1 : 2
         updateStatus({ groupId, status: { status: newStatus } })
-    }
+    }, [updateStatus])
 
     // Refresh groups list
     const refreshGroups = () => {
@@ -143,7 +143,6 @@ export function GroupTable() {
     }
 
     // Table column definitions
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const columns: ColumnDef<Group>[] = useMemo(() => [
         {
             accessorKey: 'id',
@@ -316,7 +315,7 @@ export function GroupTable() {
                 </DropdownMenu>
             ),
         },
-    ], [t, isStatusUpdating, runtimeMetrics])
+    ], [t, isStatusUpdating, runtimeMetrics, handleStatusChange, openDeleteDialog, openEditDialog, openTokenDialog])
 
     // Initialize table
     const table = useReactTable({

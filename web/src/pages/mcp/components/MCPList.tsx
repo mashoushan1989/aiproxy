@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,12 +26,13 @@ const MCPList = () => {
   const [authMethod, setAuthMethod] = useState<"query" | "header">("query");
   const { toast } = useToast();
   const { t } = useTranslation();
+  const toastRef = useRef(toast);
+  const tRef = useRef(t);
 
-  useEffect(() => {
-    fetchMCPs();
-  }, []);
+  toastRef.current = toast;
+  tRef.current = t;
 
-  const fetchMCPs = async () => {
+  const fetchMCPs = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getAllMCPs();
@@ -39,15 +40,19 @@ const MCPList = () => {
       const enabledMCPs = data.filter((mcp) => mcp.status === 1);
       setMcps(enabledMCPs);
     } catch {
-      toast({
-        title: t("error.loading"),
-        description: t("mcp.list.noResults"),
+      toastRef.current({
+        title: tRef.current("error.loading"),
+        description: tRef.current("mcp.list.noResults"),
         variant: "destructive",
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchMCPs();
+  }, [fetchMCPs]);
 
   const truncateReadme = (readme: string, maxLength = 100) => {
     if (readme.length <= maxLength) return readme;

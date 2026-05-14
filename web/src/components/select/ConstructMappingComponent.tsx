@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -21,10 +21,10 @@ export const ConstructMappingComponent = function ({
     const { t } = useTranslation()
 
     const [mapKeyValuePairs, setMapkeyValuePairs] = useState<Array<MapKeyValuePair>>([])
-    const [isInternalUpdate, setIsInternalUpdate] = useState(false)
+    const isInternalUpdateRef = useRef(false)
 
     useEffect(() => {
-        if (!isInternalUpdate) {
+        if (!isInternalUpdateRef.current) {
             const entries = Object.entries(mapData)
             setMapkeyValuePairs(
                 entries.length > 0
@@ -32,7 +32,7 @@ export const ConstructMappingComponent = function ({
                     : [{ key: '', value: '' }]
             )
         }
-        setIsInternalUpdate(false)
+        isInternalUpdateRef.current = false
     }, [mapData])
 
     const handleDropdownItemDisplay = (dropdownItem: string) => {
@@ -76,7 +76,7 @@ export const ConstructMappingComponent = function ({
             removedKeysFromMapData.forEach((key) => {
                 delete newMapData[key]
             })
-            setIsInternalUpdate(true)
+            isInternalUpdateRef.current = true
             setMapData(newMapData)
         }
 
@@ -88,7 +88,7 @@ export const ConstructMappingComponent = function ({
             )
             setMapkeyValuePairs(newMapKeyValuePairs)
         }
-    }, [mapKeys])
+    }, [mapKeys, mapData, mapKeyValuePairs, setMapData])
 
     // Get the keys that have been selected
     const getSelectedMapKeys = (currentIndex: number) => {
@@ -113,7 +113,7 @@ export const ConstructMappingComponent = function ({
         if (mapKeyValuePair.key) {
             delete newMapData[mapKeyValuePair.key]
         }
-        setIsInternalUpdate(true)
+        isInternalUpdateRef.current = true
         setMapData(newMapData)
 
         const newMapKeyValuePairs = mapKeyValuePairs.filter((_, idx) => idx !== index)
@@ -145,7 +145,7 @@ export const ConstructMappingComponent = function ({
         }
 
         setMapkeyValuePairs(newMapKeyValuePairs)
-        setIsInternalUpdate(true)
+        isInternalUpdateRef.current = true
         setMapData(newMapData)
     }
 
