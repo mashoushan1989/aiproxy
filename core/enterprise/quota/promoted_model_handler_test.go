@@ -58,10 +58,10 @@ func TestPromotedModelHandlersCreateListAndAudit(t *testing.T) {
 	router, policy := setupPromotedModelHandlerRouter(t)
 
 	createResp := requestJSON(t, router, http.MethodPost, "/api/enterprise/quota/policies/1/promoted-models", gin.H{
-		"model":          "pa/gpt-5.5",
-		"display_name":   "GPT-5.5",
+		"model":           "pa/gpt-5.5",
+		"display_name":    "GPT-5.5",
 		"recommend_badge": "Recommended",
-		"enabled":        true,
+		"enabled":         true,
 		"override_price": gin.H{
 			"input_price":       0.0000145,
 			"input_price_unit":  1,

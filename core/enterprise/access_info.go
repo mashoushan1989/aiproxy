@@ -4,6 +4,7 @@ package enterprise
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -15,11 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/controller/utils"
 	"github.com/labring/aiproxy/core/enterprise/analytics"
+	"github.com/labring/aiproxy/core/enterprise/models"
 	"github.com/labring/aiproxy/core/enterprise/ppio"
 	"github.com/labring/aiproxy/core/enterprise/quota"
 	"github.com/labring/aiproxy/core/middleware"
 	"github.com/labring/aiproxy/core/model"
 	"github.com/labring/aiproxy/core/relay/mode"
+	"gorm.io/gorm"
 )
 
 type MyTokenInfo struct {
@@ -33,17 +36,22 @@ type MyTokenInfo struct {
 }
 
 type ModelAccessInfo struct {
-	Model              string   `json:"model"`
-	Type               int      `json:"type"`
-	TypeName           string   `json:"type_name"`
-	RPM                int64    `json:"rpm"`
-	TPM                int64    `json:"tpm"`
-	InputPrice         float64  `json:"input_price"`
-	OutputPrice        float64  `json:"output_price"`
-	PriceUnit          int64    `json:"price_unit"`
-	SupportedEndpoints []string `json:"supported_endpoints"`
-	MaxContext         int64    `json:"max_context,omitempty"`
-	MaxOutput          int64    `json:"max_output,omitempty"`
+	Model              string       `json:"model"`
+	Type               int          `json:"type"`
+	TypeName           string       `json:"type_name"`
+	RPM                int64        `json:"rpm"`
+	TPM                int64        `json:"tpm"`
+	InputPrice         float64      `json:"input_price"`
+	OutputPrice        float64      `json:"output_price"`
+	PriceUnit          int64        `json:"price_unit"`
+	SupportedEndpoints []string     `json:"supported_endpoints"`
+	MaxContext         int64        `json:"max_context,omitempty"`
+	MaxOutput          int64        `json:"max_output,omitempty"`
+	IsPromoted         bool         `json:"is_promoted,omitempty"`
+	RecommendBadge     string       `json:"recommend_badge,omitempty"`
+	CommercialLocked   bool         `json:"commercial_locked,omitempty"`
+	ReferenceChannel   int          `json:"reference_channel,omitempty"`
+	BasePrice          *model.Price `json:"base_price,omitempty"`
 }
 
 var (
@@ -289,6 +297,64 @@ func channelOwnerKey(ch *model.Channel) string {
 	}
 }
 
+func modelPriceFromPromotedCommercialPrice(price models.CommercialPrice) (model.Price, error) {
+	out := model.Price{
+		PerRequestPrice:             model.ZeroNullFloat64(price.PerRequestPrice),
+		InputPrice:                  model.ZeroNullFloat64(price.InputPrice),
+		InputPriceUnit:              model.ZeroNullInt64(price.InputPriceUnit),
+		ImageInputPrice:             model.ZeroNullFloat64(price.ImageInputPrice),
+		ImageInputPriceUnit:         model.ZeroNullInt64(price.ImageInputPriceUnit),
+		AudioInputPrice:             model.ZeroNullFloat64(price.AudioInputPrice),
+		AudioInputPriceUnit:         model.ZeroNullInt64(price.AudioInputPriceUnit),
+		OutputPrice:                 model.ZeroNullFloat64(price.OutputPrice),
+		OutputPriceUnit:             model.ZeroNullInt64(price.OutputPriceUnit),
+		ImageOutputPrice:            model.ZeroNullFloat64(price.ImageOutputPrice),
+		ImageOutputPriceUnit:        model.ZeroNullInt64(price.ImageOutputPriceUnit),
+		ThinkingModeOutputPrice:     model.ZeroNullFloat64(price.ThinkingModeOutputPrice),
+		ThinkingModeOutputPriceUnit: model.ZeroNullInt64(price.ThinkingModeOutputPriceUnit),
+		CachedPrice:                 model.ZeroNullFloat64(price.CachedPrice),
+		CachedPriceUnit:             model.ZeroNullInt64(price.CachedPriceUnit),
+		CacheCreationPrice:          model.ZeroNullFloat64(price.CacheCreationPrice),
+		CacheCreationPriceUnit:      model.ZeroNullInt64(price.CacheCreationPriceUnit),
+		WebSearchPrice:              model.ZeroNullFloat64(price.WebSearchPrice),
+		WebSearchPriceUnit:          model.ZeroNullInt64(price.WebSearchPriceUnit),
+	}
+	if price.ConditionalPrices != "" {
+		if err := json.Unmarshal([]byte(price.ConditionalPrices), &out.ConditionalPrices); err != nil {
+			return model.Price{}, err
+		}
+	}
+	return out, nil
+}
+
+func activePromotedModelPolicies(policyID int) (map[string]models.PromotedModelPolicy, error) {
+	if policyID <= 0 {
+		return nil, nil
+	}
+
+	var entries []models.PromotedModelPolicy
+	if err := model.DB.
+		Where("quota_policy_id = ? AND enabled = ?", policyID, true).
+		Order("sort_order ASC, id DESC").
+		Find(&entries).Error; err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	promoted := make(map[string]models.PromotedModelPolicy, len(entries))
+	for _, entry := range entries {
+		if !entry.ActiveAt(now) {
+			continue
+		}
+		if _, exists := promoted[entry.Model]; exists {
+			continue
+		}
+		promoted[entry.Model] = entry
+	}
+
+	return promoted, nil
+}
+
 // GetMyAccess returns the user's access info including tokens and available models.
 func GetMyAccess(c *gin.Context) {
 	feishuUser := GetEnterpriseUser(c)
@@ -387,6 +453,24 @@ func GetMyAccess(c *gin.Context) {
 		gmcMap[gmc.Model] = gmc
 	}
 
+	policy, err := quota.GetPolicyForUser(c.Request.Context(), feishuUser.OpenID)
+	if err != nil || policy == nil {
+		policy, err = quota.GetGroupQuotaPolicy(c.Request.Context(), groupID)
+	}
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to load quota policy: "+err.Error())
+		return
+	}
+
+	var promotedModels map[string]models.PromotedModelPolicy
+	if policy != nil {
+		promotedModels, err = activePromotedModelPolicies(policy.ID)
+		if err != nil {
+			middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to load promoted models: "+err.Error())
+			return
+		}
+	}
+
 	// Build per-model owner list across ALL sets. A model that exists in
 	// channels across multiple sets (e.g. both "default" via PPIO and "overseas"
 	// via Novita) appears in each owner's group so users see the full roster
@@ -451,6 +535,7 @@ func GetMyAccess(c *gin.Context) {
 		inputPrice := float64(mc.Price.InputPrice)
 		outputPrice := float64(mc.Price.OutputPrice)
 		priceUnit := int64(mc.Price.InputPriceUnit)
+		hasGroupPriceOverride := false
 
 		if priceUnit == 0 {
 			priceUnit = model.PriceUnit
@@ -464,12 +549,29 @@ func GetMyAccess(c *gin.Context) {
 			}
 
 			if gmc.OverridePrice {
+				hasGroupPriceOverride = true
 				inputPrice = float64(gmc.Price.InputPrice)
 				outputPrice = float64(gmc.Price.OutputPrice)
 
 				if int64(gmc.Price.InputPriceUnit) != 0 {
 					priceUnit = int64(gmc.Price.InputPriceUnit)
 				}
+			}
+		}
+
+		promotedEntry, promoted := promotedModels[modelName]
+		if promoted && !hasGroupPriceOverride {
+			overridePrice, err := modelPriceFromPromotedCommercialPrice(promotedEntry.OverridePrice)
+			if err != nil {
+				middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to load promoted model price: "+err.Error())
+				return
+			}
+
+			inputPrice = float64(overridePrice.InputPrice)
+			outputPrice = float64(overridePrice.OutputPrice)
+
+			if int64(overridePrice.InputPriceUnit) != 0 {
+				priceUnit = int64(overridePrice.InputPriceUnit)
 			}
 		}
 
@@ -488,6 +590,20 @@ func GetMyAccess(c *gin.Context) {
 			SupportedEndpoints: getModelSupportedEndpoints(mc),
 			MaxContext:         int64(maxCtx),
 			MaxOutput:          int64(maxOut),
+		}
+
+		if promoted {
+			basePrice, err := modelPriceFromPromotedCommercialPrice(promotedEntry.BasePrice)
+			if err != nil {
+				middleware.ErrorResponse(c, http.StatusInternalServerError, "failed to load promoted model base price: "+err.Error())
+				return
+			}
+
+			info.IsPromoted = true
+			info.RecommendBadge = promotedEntry.RecommendBadge
+			info.CommercialLocked = promotedEntry.PriceLocked
+			info.ReferenceChannel = promotedEntry.ChannelID
+			info.BasePrice = &basePrice
 		}
 
 		// Add model to ALL owner groups where it has a channel.
@@ -518,6 +634,9 @@ func GetMyAccess(c *gin.Context) {
 	for _, owner := range owners {
 		models := ownerModels[owner]
 		sort.Slice(models, func(i, j int) bool {
+			if models[i].IsPromoted != models[j].IsPromoted {
+				return models[i].IsPromoted
+			}
 			return models[i].Model < models[j].Model
 		})
 

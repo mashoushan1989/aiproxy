@@ -26,6 +26,8 @@ func setupPromotedModelPolicyTestDB(t *testing.T) *gorm.DB {
 		&model.ModelConfig{},
 		&model.Channel{},
 		&entmodels.QuotaPolicy{},
+		&entmodels.FeishuUser{},
+		&entmodels.GroupQuotaPolicy{},
 		&entmodels.PromotedModelPolicy{},
 		&entmodels.PromotedModelPolicyAudit{},
 	); err != nil {

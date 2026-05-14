@@ -55,6 +55,10 @@ func setupAccessInfoTestDB(t *testing.T) {
 		&model.Channel{},
 		&model.ModelConfig{},
 		&model.GroupModelConfig{},
+		&models.QuotaPolicy{},
+		&models.GroupQuotaPolicy{},
+		&models.PromotedModelPolicy{},
+		&models.PromotedModelPolicyAudit{},
 	); err != nil {
 		t.Fatalf("failed to migrate test tables: %v", err)
 	}
@@ -242,6 +246,137 @@ func TestGetMyAccess_GroupsSameTypeChannelsByChannelInstance(t *testing.T) {
 
 	if displayNames["PPIO Primary"] != 1 || displayNames["PPIO Backup"] != 1 {
 		t.Fatalf("expected both channel names as display groups, got %v", displayNames)
+	}
+}
+
+func TestGetMyAccess_IncludesPromotedModelMetadataAndKeepsNormalModels(t *testing.T) {
+	setupAccessInfoTestDB(t)
+
+	const groupID = "group-promoted"
+	const promotedModel = "pa/gpt-5.5"
+	const normalModel = "gpt-4o-mini"
+
+	if err := model.DB.Create(&model.Group{
+		ID:     groupID,
+		Name:   "Group Promoted",
+		Status: model.GroupStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("failed to create group: %v", err)
+	}
+
+	if err := model.DB.Create(&model.Token{
+		GroupID: groupID,
+		Name:    model.EmptyNullString("token-promoted"),
+		Status:  model.TokenStatusEnabled,
+	}).Error; err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	if err := model.DB.Create(&[]model.ModelConfig{
+		{
+			Model: promotedModel,
+			Owner: "ppio",
+			Type:  mode.ChatCompletions,
+			Price: model.Price{
+				InputPrice:      model.ZeroNullFloat64(0.00003625),
+				InputPriceUnit:  model.ZeroNullInt64(1),
+				OutputPrice:     model.ZeroNullFloat64(0.0002175),
+				OutputPriceUnit: model.ZeroNullInt64(1),
+			},
+		},
+		{
+			Model: normalModel,
+			Owner: "ppio",
+			Type:  mode.ChatCompletions,
+			Price: model.Price{
+				InputPrice:     model.ZeroNullFloat64(0.000001),
+				InputPriceUnit: model.ZeroNullInt64(1),
+			},
+		},
+	}).Error; err != nil {
+		t.Fatalf("failed to create model configs: %v", err)
+	}
+
+	channel := model.Channel{
+		Name:   "PPIO",
+		Type:   model.ChannelTypePPIO,
+		Status: model.ChannelStatusEnabled,
+		Models: []string{promotedModel, normalModel},
+		Sets:   []string{model.ChannelDefaultSet},
+	}
+	if err := model.DB.Create(&channel).Error; err != nil {
+		t.Fatalf("failed to create channel: %v", err)
+	}
+
+	policy := models.QuotaPolicy{Name: "Engineering"}
+	if err := model.DB.Create(&policy).Error; err != nil {
+		t.Fatalf("failed to create policy: %v", err)
+	}
+	if err := model.DB.Create(&models.GroupQuotaPolicy{
+		GroupID:       groupID,
+		QuotaPolicyID: policy.ID,
+	}).Error; err != nil {
+		t.Fatalf("failed to bind policy: %v", err)
+	}
+
+	basePrice := models.CommercialPrice{
+		InputPrice:      0.00003625,
+		InputPriceUnit:  1,
+		OutputPrice:     0.0002175,
+		OutputPriceUnit: 1,
+	}
+	overridePrice := models.CommercialPrice{
+		InputPrice:      0.0000145,
+		InputPriceUnit:  1,
+		OutputPrice:     0.000087,
+		OutputPriceUnit: 1,
+	}
+	if err := model.DB.Create(&models.PromotedModelPolicy{
+		QuotaPolicyID:  policy.ID,
+		Model:          promotedModel,
+		ChannelID:      channel.ID,
+		RecommendBadge: "Recommended",
+		SortOrder:      1,
+		Enabled:        true,
+		BasePrice:      basePrice,
+		OverridePrice:  overridePrice,
+		PriceLocked:    true,
+		Version:        1,
+	}).Error; err != nil {
+		t.Fatalf("failed to create promoted model: %v", err)
+	}
+
+	if err := model.InitModelConfigAndChannelCache(); err != nil {
+		t.Fatalf("failed to initialize model/channel cache: %v", err)
+	}
+
+	c, recorder := makeEnterpriseContext(t, "", &models.FeishuUser{OpenID: "ou_promoted", GroupID: groupID, Status: 1})
+	GetMyAccess(c)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+
+	result := decodeData[MyAccessResponse](t, recorder)
+	if len(result.ModelGroups) != 1 {
+		t.Fatalf("expected one model group, got %d: %+v", len(result.ModelGroups), result.ModelGroups)
+	}
+	if len(result.ModelGroups[0].Models) != 2 {
+		t.Fatalf("expected promoted and normal models, got %+v", result.ModelGroups[0].Models)
+	}
+
+	first := result.ModelGroups[0].Models[0]
+	if !first.IsPromoted || first.Model != promotedModel {
+		t.Fatalf("expected promoted model first, got %+v", result.ModelGroups[0].Models)
+	}
+	if first.InputPrice != 0.0000145 || !first.CommercialLocked || first.RecommendBadge != "Recommended" {
+		t.Fatalf("unexpected promoted metadata: %+v", first)
+	}
+	if first.BasePrice == nil || first.BasePrice.InputPrice != model.ZeroNullFloat64(0.00003625) {
+		t.Fatalf("unexpected base price: %+v", first.BasePrice)
+	}
+	if result.ModelGroups[0].Models[1].Model != normalModel || result.ModelGroups[0].Models[1].IsPromoted {
+		t.Fatalf("normal model missing or marked promoted: %+v", result.ModelGroups[0].Models[1])
 	}
 }
 

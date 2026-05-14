@@ -169,7 +169,15 @@ func relayHandler(c *gin.Context, meta *meta.Meta, mc *model.ModelCaches) *contr
 	return controller.Handle(adaptor, c, meta, adaptorStore)
 }
 
-func defaultPriceFunc(_ *gin.Context, mc model.ModelConfig) (model.Price, error) {
+func defaultPriceFunc(c *gin.Context, mc model.ModelConfig) (model.Price, error) {
+	group := middleware.GetGroup(c)
+	if groupModelConfig, ok := group.ModelConfigs[mc.Model]; ok && groupModelConfig.OverridePrice {
+		return mc.Price, nil
+	}
+	if middleware.EnterprisePriceResolver != nil {
+		return middleware.EnterprisePriceResolver(group, mc.Model, mc.Price)
+	}
+
 	return mc.Price, nil
 }
 

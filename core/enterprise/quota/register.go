@@ -59,4 +59,5 @@ func RegisterRoutes(group *gin.RouterGroup, permMW map[string]gin.HandlerFunc) {
 // the progressive quota tier logic during request distribution.
 func Init() {
 	middleware.EnterpriseQuotaCheck = CheckQuotaTier
+	middleware.EnterprisePriceResolver = ResolvePromotedModelPrice
 }
