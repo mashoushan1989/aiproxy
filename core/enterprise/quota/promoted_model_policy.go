@@ -194,6 +194,9 @@ func validatePromotedModelEntry(
 	if effectiveAt != nil && expiresAt != nil && !expiresAt.After(*effectiveAt) {
 		return model.Price{}, errors.New("expires_at must be after effective_at")
 	}
+	if expiresAt != nil && !expiresAt.After(time.Now()) {
+		return model.Price{}, errors.New("expires_at must be in the future")
+	}
 	if err := overridePrice.ValidateConditionalPrices(); err != nil {
 		return model.Price{}, err
 	}

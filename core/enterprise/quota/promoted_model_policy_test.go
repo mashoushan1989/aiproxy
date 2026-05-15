@@ -183,6 +183,26 @@ func TestCreatePromotedModelPolicyRejectsInvalidDiscountRate(t *testing.T) {
 	}
 }
 
+func TestCreatePromotedModelPolicyRejectsExpiredWindow(t *testing.T) {
+	db := setupPromotedModelPolicyTestDB(t)
+	policy := seedPromotedModelFixtures(t, db)
+	past := time.Now().Add(-time.Hour)
+
+	_, err := CreatePromotedModelEntry(CreatePromotedModelEntryRequest{
+		QuotaPolicyID: policy.ID,
+		Model:         "pa/gpt-5.5",
+		Enabled:       true,
+		OverridePrice: model.Price{
+			InputPrice:     model.ZeroNullFloat64(0.1),
+			InputPriceUnit: model.ZeroNullInt64(1),
+		},
+		ExpiresAt: &past,
+	}, AuditOperator{ID: "admin", Name: "Admin"})
+	if err == nil {
+		t.Fatalf("expected expired promoted model window to fail")
+	}
+}
+
 func TestCreatePromotedModelPolicyAuditFailureRollsBack(t *testing.T) {
 	db := setupPromotedModelPolicyTestDB(t)
 	policy := seedPromotedModelFixtures(t, db)

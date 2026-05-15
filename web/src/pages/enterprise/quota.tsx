@@ -1822,6 +1822,10 @@ function PromotedModelsTab({ policies, canManage }: { policies: QuotaPolicy[]; c
             toast.error(t("enterprise.quota.promoted.modelRequired" as never))
             return
         }
+        if (form.expires_at && isPastDateTimeLocal(form.expires_at)) {
+            toast.error(t("enterprise.quota.expiryMustBeFuture" as never))
+            return
+        }
 
         const payload: PromotedModelPolicyInput = {
             ...form,

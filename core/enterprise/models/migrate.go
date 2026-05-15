@@ -92,11 +92,73 @@ func EnterpriseAutoMigrate(db *gorm.DB) error {
 	// Migrate V1 (single key) → V2 (view/manage split)
 	migratePermissionsV2(db)
 
+	// Preserve legacy discount rows after pricing_mode was added with a manual default.
+	backfillPromotedModelDiscountPricingMode(db)
+
 	// Tag legacy model_configs rows with synced_from based on Owner.
 	// One-shot bootstrap so the new sync ownership rules can manage them.
 	migrateModelConfigSyncedFrom(db)
 
 	return nil
+}
+
+func backfillPromotedModelDiscountPricingMode(db *gorm.DB) {
+	var entries []PromotedModelPolicy
+	if err := db.
+		Where("discount_rate > 0").
+		Where("pricing_mode IS NULL OR pricing_mode = '' OR pricing_mode = ?", PromotedModelPricingModeManual).
+		Find(&entries).Error; err != nil {
+		log.Errorf("failed to load promoted model discount pricing_mode backfill candidates: %v", err)
+		return
+	}
+
+	ids := make([]int, 0, len(entries))
+	for _, entry := range entries {
+		if commercialPriceMatchesDiscount(entry.BasePrice, entry.OverridePrice, entry.DiscountRate) {
+			ids = append(ids, entry.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	res := db.Model(&PromotedModelPolicy{}).
+		Where("id IN ?", ids).
+		Update("pricing_mode", PromotedModelPricingModeDiscount)
+	if res.Error != nil {
+		log.Errorf("failed to backfill promoted model discount pricing_mode: %v", res.Error)
+		return
+	}
+	log.Infof("backfilled %d promoted model discount pricing modes", res.RowsAffected)
+}
+
+func commercialPriceMatchesDiscount(base, override CommercialPrice, discountRate float64) bool {
+	const epsilon = 0.0000000001
+	matches := func(baseValue, overrideValue float64) bool {
+		diff := overrideValue - baseValue*discountRate
+		return diff >= -epsilon && diff <= epsilon
+	}
+
+	return matches(base.PerRequestPrice, override.PerRequestPrice) &&
+		matches(base.InputPrice, override.InputPrice) &&
+		base.InputPriceUnit == override.InputPriceUnit &&
+		matches(base.ImageInputPrice, override.ImageInputPrice) &&
+		base.ImageInputPriceUnit == override.ImageInputPriceUnit &&
+		matches(base.AudioInputPrice, override.AudioInputPrice) &&
+		base.AudioInputPriceUnit == override.AudioInputPriceUnit &&
+		matches(base.OutputPrice, override.OutputPrice) &&
+		base.OutputPriceUnit == override.OutputPriceUnit &&
+		matches(base.ImageOutputPrice, override.ImageOutputPrice) &&
+		base.ImageOutputPriceUnit == override.ImageOutputPriceUnit &&
+		matches(base.ThinkingModeOutputPrice, override.ThinkingModeOutputPrice) &&
+		base.ThinkingModeOutputPriceUnit == override.ThinkingModeOutputPriceUnit &&
+		matches(base.CachedPrice, override.CachedPrice) &&
+		base.CachedPriceUnit == override.CachedPriceUnit &&
+		matches(base.CacheCreationPrice, override.CacheCreationPrice) &&
+		base.CacheCreationPriceUnit == override.CacheCreationPriceUnit &&
+		matches(base.WebSearchPrice, override.WebSearchPrice) &&
+		base.WebSearchPriceUnit == override.WebSearchPriceUnit &&
+		base.ConditionalPrices == override.ConditionalPrices
 }
 
 // channelModels is a one-shot projection of channels.models used by the
