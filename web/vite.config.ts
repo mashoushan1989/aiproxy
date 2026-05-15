@@ -33,8 +33,7 @@ export default defineConfig(({ mode }) => {
           manualChunks(id) {
             if (!id.includes('node_modules')) return
 
-            if (id.includes('/node_modules/echarts/')) return 'vendor-echarts'
-            if (id.includes('/node_modules/zrender/')) return 'vendor-zrender'
+            if (id.includes('/node_modules/echarts/') || id.includes('/node_modules/zrender/')) return 'vendor-echarts'
             if (id.includes('/node_modules/react-syntax-highlighter/')) return 'vendor-syntax-highlighter'
             if (id.includes('/node_modules/react-markdown/') || id.includes('/node_modules/remark-gfm/') || id.includes('/node_modules/markdown-table/') || id.includes('/node_modules/mdast-util-') || id.includes('/node_modules/micromark') || id.includes('/node_modules/unist-') || id.includes('/node_modules/vfile')) {
               return 'vendor-markdown'
