@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/labring/aiproxy/core/common"
 	"github.com/labring/aiproxy/core/common/env"
+	"github.com/labring/aiproxy/core/enterprise/synccommon"
 	"github.com/labring/aiproxy/core/model"
 )
 
@@ -341,7 +342,7 @@ func ModelCoverageHandler(c *gin.Context) {
 	var localModels []model.ModelConfig
 
 	if err := model.DB.Select("model", "config").
-		Where("owner = ?", string(model.ModelOwnerPPIO)).Find(&localModels).Error; err != nil {
+		Where("synced_from = ?", synccommon.SyncedFromPPIO).Find(&localModels).Error; err != nil {
 		errorResponse(c, http.StatusInternalServerError, err.Error())
 
 		return

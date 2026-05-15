@@ -262,6 +262,19 @@ func ExecuteSync( //nolint:cyclop
 	// Classify models directly from upstream API data and replace channel model lists.
 	synccommon.SendProgress(progressCallback, "channels", "检查并更新 Channel 模型列表...", 85, nil)
 
+	// Self-heal: if multimodal API returned nothing this run, recover the list
+	// from historically-synced PPIONative rows so a transient upstream outage
+	// doesn't wipe the multimodal channel.
+	if len(multimodalNames) == 0 {
+		var historical []string
+		qErr := model.DB.Model(&model.ModelConfig{}).
+			Where("synced_from = ? AND type = ?", synccommon.SyncedFromPPIO, mode.PPIONative).
+			Pluck("model", &historical).Error
+		if qErr == nil && len(historical) > 0 {
+			multimodalNames = historical
+		}
+	}
+
 	channelsInfo, err := EnsurePPIOChannels(
 		opts.AutoCreateChannels,
 		&opts.AnthropicPurePassthrough,
@@ -1060,8 +1073,6 @@ func setPriceFromV2Model(price *model.Price, m *PPIOModelV2) {
 	}
 
 	price.ConditionalPrices = conditionalPrices
-
-	synccommon.PromoteFirstTierToBasePrice(price)
 }
 
 // buildConfigFromPPIOModelV2 builds model config map from a V2 PPIO model

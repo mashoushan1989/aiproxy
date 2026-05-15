@@ -626,6 +626,14 @@ func GetMyAccess(c *gin.Context) {
 				})
 			}
 			info.PriceTiers = tiers
+
+			// Promote first-tier price for display when upstream is pure tiered-billing (base=0).
+			if !hasGroupPriceOverride && !promoted &&
+				info.InputPrice == 0 && info.OutputPrice == 0 {
+				info.InputPrice = tiers[0].InputPrice
+				info.OutputPrice = tiers[0].OutputPrice
+				info.PriceUnit = tiers[0].PriceUnit
+			}
 		}
 
 		// Add model to ALL owner groups where it has a channel.

@@ -489,8 +489,6 @@ func setPriceFromV2Model(price *model.Price, m *NovitaModelV2, exchangeRate floa
 	}
 
 	price.ConditionalPrices = conditionalPrices
-
-	synccommon.PromoteFirstTierToBasePrice(price)
 }
 
 // buildConfigFromV2Model builds the model config map stored in ModelConfig.Config from a V2 model.
