@@ -152,3 +152,21 @@ func AdjustTierBounds(minTokens, maxTokens, prevMax int64) (int64, int64) {
 
 	return minTokens, maxTokens
 }
+
+// PromoteFirstTierToBasePrice fills in base InputPrice/OutputPrice from the
+// first conditional tier when the upstream model is pure tiered-billing (base=0
+// but all requests hit a tier). This ensures display layers show a meaningful
+// price instead of "free".
+func PromoteFirstTierToBasePrice(price *model.Price) {
+	if price.InputPrice != 0 || price.OutputPrice != 0 {
+		return
+	}
+	if len(price.ConditionalPrices) == 0 {
+		return
+	}
+	first := price.ConditionalPrices[0].Price
+	price.InputPrice = first.InputPrice
+	price.InputPriceUnit = first.InputPriceUnit
+	price.OutputPrice = first.OutputPrice
+	price.OutputPriceUnit = first.OutputPriceUnit
+}

@@ -36,24 +36,34 @@ type MyTokenInfo struct {
 }
 
 type ModelAccessInfo struct {
-	Model              string       `json:"model"`
-	Type               int          `json:"type"`
-	TypeName           string       `json:"type_name"`
-	RPM                int64        `json:"rpm"`
-	TPM                int64        `json:"tpm"`
-	InputPrice         float64      `json:"input_price"`
-	OutputPrice        float64      `json:"output_price"`
-	PriceUnit          int64        `json:"price_unit"`
-	SupportedEndpoints []string     `json:"supported_endpoints"`
-	MaxContext         int64        `json:"max_context,omitempty"`
-	MaxOutput          int64        `json:"max_output,omitempty"`
-	IsPromoted         bool         `json:"is_promoted,omitempty"`
-	DisplayName        string       `json:"display_name,omitempty"`
-	SortOrder          int          `json:"sort_order,omitempty"`
-	RecommendBadge     string       `json:"recommend_badge,omitempty"`
-	CommercialLocked   bool         `json:"commercial_locked,omitempty"`
-	ReferenceChannel   int          `json:"reference_channel,omitempty"`
-	BasePrice          *model.Price `json:"base_price,omitempty"`
+	Model              string            `json:"model"`
+	Type               int               `json:"type"`
+	TypeName           string            `json:"type_name"`
+	RPM                int64             `json:"rpm"`
+	TPM                int64             `json:"tpm"`
+	InputPrice         float64           `json:"input_price"`
+	OutputPrice        float64           `json:"output_price"`
+	PriceUnit          int64             `json:"price_unit"`
+	SupportedEndpoints []string          `json:"supported_endpoints"`
+	MaxContext         int64             `json:"max_context,omitempty"`
+	MaxOutput          int64             `json:"max_output,omitempty"`
+	IsPromoted         bool              `json:"is_promoted,omitempty"`
+	DisplayName        string            `json:"display_name,omitempty"`
+	SortOrder          int               `json:"sort_order,omitempty"`
+	RecommendBadge     string            `json:"recommend_badge,omitempty"`
+	CommercialLocked   bool              `json:"commercial_locked,omitempty"`
+	ReferenceChannel   int               `json:"reference_channel,omitempty"`
+	BasePrice          *model.Price      `json:"base_price,omitempty"`
+	IsTieredBilling    bool              `json:"is_tiered_billing,omitempty"`
+	PriceTiers         []PriceTierInfo   `json:"price_tiers,omitempty"`
+}
+
+type PriceTierInfo struct {
+	InputTokenMin int64   `json:"input_token_min,omitempty"`
+	InputTokenMax int64   `json:"input_token_max,omitempty"`
+	InputPrice    float64 `json:"input_price"`
+	OutputPrice   float64 `json:"output_price"`
+	PriceUnit     int64   `json:"price_unit"`
 }
 
 var (
@@ -597,6 +607,25 @@ func GetMyAccess(c *gin.Context) {
 			info.CommercialLocked = promotedEntry.PriceLocked
 			info.ReferenceChannel = promotedEntry.ChannelID
 			info.BasePrice = &basePrice
+		}
+
+		if len(mc.Price.ConditionalPrices) > 0 {
+			info.IsTieredBilling = true
+			tiers := make([]PriceTierInfo, 0, len(mc.Price.ConditionalPrices))
+			for _, cp := range mc.Price.ConditionalPrices {
+				tierUnit := int64(cp.Price.InputPriceUnit)
+				if tierUnit == 0 {
+					tierUnit = priceUnit
+				}
+				tiers = append(tiers, PriceTierInfo{
+					InputTokenMin: cp.Condition.InputTokenMin,
+					InputTokenMax: cp.Condition.InputTokenMax,
+					InputPrice:    float64(cp.Price.InputPrice),
+					OutputPrice:   float64(cp.Price.OutputPrice),
+					PriceUnit:     tierUnit,
+				})
+			}
+			info.PriceTiers = tiers
 		}
 
 		// Add model to ALL owner groups where it has a channel.

@@ -1060,6 +1060,8 @@ func setPriceFromV2Model(price *model.Price, m *PPIOModelV2) {
 	}
 
 	price.ConditionalPrices = conditionalPrices
+
+	synccommon.PromoteFirstTierToBasePrice(price)
 }
 
 // buildConfigFromPPIOModelV2 builds model config map from a V2 PPIO model

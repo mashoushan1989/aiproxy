@@ -34,6 +34,7 @@ import {
     type ModelUsage,
     type UserLog,
     type RequestDetail,
+    type PriceTierInfo,
 } from "@/api/enterprise"
 import { computeTimeRangeTs, formatAmount, formatNumber, formatMs, formatRate, type TimeRange } from "@/lib/enterprise"
 
@@ -128,6 +129,49 @@ function formatPrice(price: number, unit: number, freeLabel: string): string {
     if (price === 0) return freeLabel
     const perMillion = (price / (unit || 1000)) * 1_000_000
     return `¥${perMillion.toFixed(2)}`
+}
+
+function formatTokenRange(min?: number, max?: number): string {
+    const fmt = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}K` : `${n}`
+    if (!max || max === 0) return `≥ ${fmt(min || 0)}`
+    return `${fmt(min || 0)} ~ ${fmt(max)}`
+}
+
+function TieredPriceCell({ price, unit, tiers, freeLabel }: { price: number; unit: number; tiers: PriceTierInfo[]; freeLabel: string }) {
+    const { t } = useTranslation()
+    return (
+        <TooltipProvider delayDuration={200}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <span className="cursor-help border-b border-dashed border-muted-foreground/50">
+                        {formatPrice(price, unit, freeLabel)}
+                        <span className="text-muted-foreground ml-0.5">{t("enterprise.myAccess.priceFrom" as never)}</span>
+                    </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                    <p className="font-medium mb-1">{t("enterprise.myAccess.tieredPricing" as never)}</p>
+                    <table className="text-xs w-full">
+                        <thead>
+                            <tr className="text-muted-foreground">
+                                <th className="text-left pr-2">{t("enterprise.myAccess.tieredInputRange" as never)}</th>
+                                <th className="text-right pr-2">{t("enterprise.myAccess.tieredInputPrice" as never)}</th>
+                                <th className="text-right">{t("enterprise.myAccess.tieredOutputPrice" as never)}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tiers.map((tier, i) => (
+                                <tr key={i}>
+                                    <td className="pr-2">{formatTokenRange(tier.input_token_min, tier.input_token_max)}</td>
+                                    <td className="text-right pr-2">{formatPrice(tier.input_price, tier.price_unit, "-")}</td>
+                                    <td className="text-right">{formatPrice(tier.output_price, tier.price_unit, "-")}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    )
 }
 
 // --- Comparison Metric Card ---
@@ -1124,10 +1168,18 @@ function ModelGroupSection({ groups, baseUrl, ownerBaseUrls, localOwner }: { gro
                                                         {m.max_output ? formatNumber(m.max_output) : "-"}
                                                     </td>
                                                     <td className="px-3 py-2 text-right tabular-nums text-xs">
-                                                        {formatPrice(m.input_price, m.price_unit, t("enterprise.myAccess.free" as never))}
+                                                        {m.is_tiered_billing && m.price_tiers?.length ? (
+                                                            <TieredPriceCell price={m.input_price} unit={m.price_unit} tiers={m.price_tiers} freeLabel={t("enterprise.myAccess.free" as never)} />
+                                                        ) : (
+                                                            formatPrice(m.input_price, m.price_unit, t("enterprise.myAccess.free" as never))
+                                                        )}
                                                     </td>
                                                     <td className="px-3 py-2 text-right tabular-nums text-xs">
-                                                        {formatPrice(m.output_price, m.price_unit, t("enterprise.myAccess.free" as never))}
+                                                        {m.is_tiered_billing && m.price_tiers?.length ? (
+                                                            <TieredPriceCell price={m.output_price} unit={m.price_unit} tiers={m.price_tiers} freeLabel={t("enterprise.myAccess.free" as never)} />
+                                                        ) : (
+                                                            formatPrice(m.output_price, m.price_unit, t("enterprise.myAccess.free" as never))
+                                                        )}
                                                     </td>
                                                     <td className="px-3 py-2 text-right text-xs">
                                                         <div className="tabular-nums">{m.rpm || "-"} <span className="text-muted-foreground">RPM</span></div>

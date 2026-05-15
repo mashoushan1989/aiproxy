@@ -631,6 +631,16 @@ export interface ModelAccessInfo {
     reference_channel?: number
     sort_order?: number
     base_price?: ModelPrice
+    is_tiered_billing?: boolean
+    price_tiers?: PriceTierInfo[]
+}
+
+export interface PriceTierInfo {
+    input_token_min?: number
+    input_token_max?: number
+    input_price: number
+    output_price: number
+    price_unit: number
 }
 
 export interface ModelGroupInfo {
